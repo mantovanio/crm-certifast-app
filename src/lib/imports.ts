@@ -85,6 +85,12 @@ const ROW_ALIAS_GROUPS: Array<[string, string[]]> = [
   ['Razão Social', ['Razão Social', 'Razao Social']],
   ['Agente', ['Agente', 'Desc. Agente Val.']],
   ['Desc. Agente Val.', ['Desc. Agente Val.', 'Agente']],
+  ['Produto', ['Produto', 'Desc.Produto']],
+  ['Desc.Produto', ['Desc.Produto', 'Produto']],
+  ['Status do Pedido', ['Status do Pedido', 'Status Pedido', 'Status']],
+  ['Pedido', ['Pedido', 'Nº Pedido', 'Numero Pedido']],
+  ['Data Vencimento', ['Data Vencimento', 'Data de Vencimento', 'Vencimento']],
+  ['Vencimento', ['Vencimento', 'Data de Vencimento', 'Data Vencimento']],
 ]
 
 function normalizeText(value: unknown) {
@@ -281,18 +287,24 @@ function looksLikeRenewalRows(rows: ParsedRow[]) {
     for (const key of Object.keys(row || {})) keys.add(normalizeText(key))
   }
 
-  const signals = [
-    'CLIENTE',
-    'PEDIDO',
-    'DATA DE VENCIMENTO',
-    'PRODUTO',
-    'STATUS DO PEDIDO',
-    'PONTO DE ATENDIMENTO',
-    'AGENTE',
-    'AR',
+  const signalGroups = [
+    ['CLIENTE', 'NOME CLIENTE'],
+    ['PEDIDO'],
+    ['DATA DE VENCIMENTO', 'DATA VENCIMENTO', 'VENCIMENTO'],
+    ['PRODUTO', 'DESC.PRODUTO'],
+    ['STATUS DO PEDIDO', 'STATUS PEDIDO'],
+    ['PONTO DE ATENDIMENTO'],
+    ['AGENTE', 'DESC. AGENTE VAL.'],
+    ['AR'],
+    ['EMAIL', 'E-MAIL'],
+    ['CPF', 'CNPJ'],
   ]
 
-  return signals.filter((signal) => keys.has(signal)).length >= 3
+  const score = signalGroups.reduce((total, group) => {
+    return total + (group.some((signal) => keys.has(signal)) ? 1 : 0)
+  }, 0)
+
+  return score >= 4
 }
 
 export function resolveImportInfo(fileName: string, rows: ParsedRow[], expectedType: ImportType, expectedSourceArea: ImportSourceArea = 'principal'): ImportInfo {

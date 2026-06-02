@@ -47,6 +47,11 @@ const IMPORT_SLOTS: ImportSlot[] = [
 
 type ImportState = Record<string, File[]>
 
+type ImportInsertResult = {
+  inserted: number
+  skipped: number
+}
+
 function chunk<T>(items: T[], size: number) {
   const result: T[][] = []
   for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size))
@@ -69,6 +74,58 @@ function normalizeText(value: unknown) {
     .replace(/\s+/g, ' ')
     .trim()
     .toUpperCase()
+}
+
+function cleanKeyPart(value: unknown) {
+  return normalizeText(value)
+}
+
+function buildSalesDedupKey(record: {
+  period: string
+  pedido: string
+  data_verificacao?: string | null
+  produto?: string | null
+  participant_nome?: string | null
+}) {
+  return [
+    cleanKeyPart(record.period),
+    cleanKeyPart(record.pedido),
+    cleanKeyPart(record.data_verificacao),
+    cleanKeyPart(record.produto),
+    cleanKeyPart(record.participant_nome),
+  ].join('|')
+}
+
+function buildValidationDedupKey(record: {
+  period: string
+  pedido: string
+  data_validacao?: string | null
+  produto?: string | null
+  participant_nome?: string | null
+}) {
+  return [
+    cleanKeyPart(record.period),
+    cleanKeyPart(record.pedido),
+    cleanKeyPart(record.data_validacao),
+    cleanKeyPart(record.produto),
+    cleanKeyPart(record.participant_nome),
+  ].join('|')
+}
+
+function buildRenewalDedupKey(record: {
+  period: string
+  document_key: string
+  data_vencimento?: string | null
+  produto?: string | null
+  pedido?: string | null
+}) {
+  return [
+    cleanKeyPart(record.period),
+    cleanKeyPart(record.document_key),
+    cleanKeyPart(record.data_vencimento),
+    cleanKeyPart(record.produto),
+    cleanKeyPart(record.pedido),
+  ].join('|')
 }
 
 function documentKeyFromRaw({ cpf = '', cnpj = '', email = '', telefone = '', cliente = '' }) {
@@ -248,27 +305,6 @@ export default function Importacoes() {
     })
   }
 
-  async function purgeExistingImport(type: ImportType, period: string, sourceArea: ImportSourceArea) {
-    const { data, error } = await supabase
-      .from('crm_import_files')
-      .select('*')
-      .eq('file_type', type)
-      .eq('period', period)
-      .eq('source_area', sourceArea)
-
-    if (error) throw error
-    if (!data?.length) return
-
-    const storagePaths = data.map((item) => item.storage_path).filter(Boolean)
-    if (storagePaths.length) {
-      const removeResp = await supabase.storage.from(BUCKET).remove(storagePaths)
-      if (removeResp.error) throw removeResp.error
-    }
-
-    const { error: deleteError } = await supabase.from('crm_import_files').delete().in('id', data.map((item) => item.id))
-    if (deleteError) throw deleteError
-  }
-
   async function uploadRawFile(file: File, info: { type: ImportType; period: string; sourceArea: ImportSourceArea }, customPath?: string) {
     const storagePath = customPath || `${info.sourceArea}/${info.type}/${info.period}/${Date.now()}-${file.name}`
     const { error } = await supabase.storage.from(BUCKET).upload(storagePath, file, { upsert: true })
@@ -294,7 +330,7 @@ export default function Importacoes() {
     return data as ImportFileRow
   }
 
-  async function insertSales(rows: ParsedRow[], importFileId: string, period: string) {
+  async function insertSales(rows: ParsedRow[], importFileId: string, period: string): Promise<ImportInsertResult> {
     const records = rows
       .map((row) => {
         const participant = participantIndex.byVendor.get(normalizeText(row['Nome Vendedor']))
@@ -316,13 +352,36 @@ export default function Importacoes() {
       })
       .filter((item) => item.pedido)
 
-    for (const batch of chunk(records, 300)) {
+    const existingResp = await supabase
+      .from('crm_sales')
+      .select('period,pedido,data_verificacao,produto,participant_nome')
+      .eq('period', period)
+
+    if (existingResp.error) throw existingResp.error
+
+    const existingKeys = new Set(
+      (existingResp.data ?? []).map((item) => buildSalesDedupKey(item)),
+    )
+    const pendingKeys = new Set<string>()
+    const recordsToInsert = records.filter((record) => {
+      const dedupKey = buildSalesDedupKey(record)
+      if (existingKeys.has(dedupKey) || pendingKeys.has(dedupKey)) return false
+      pendingKeys.add(dedupKey)
+      return true
+    })
+
+    for (const batch of chunk(recordsToInsert, 300)) {
       const { error } = await supabase.from('crm_sales').insert(batch)
       if (error) throw error
     }
+
+    return {
+      inserted: recordsToInsert.length,
+      skipped: records.length - recordsToInsert.length,
+    }
   }
 
-  async function insertValidations(rows: ParsedRow[], importFileId: string, period: string) {
+  async function insertValidations(rows: ParsedRow[], importFileId: string, period: string): Promise<ImportInsertResult> {
     const records = rows
       .map((row) => {
         const participant = participantIndex.byValidator.get(normalizeText(row['Desc. Agente Val.'] || row['Agente']))
@@ -346,13 +405,36 @@ export default function Importacoes() {
       })
       .filter((item) => item.pedido)
 
-    for (const batch of chunk(records, 300)) {
+    const existingResp = await supabase
+      .from('crm_validations')
+      .select('period,pedido,data_validacao,produto,participant_nome')
+      .eq('period', period)
+
+    if (existingResp.error) throw existingResp.error
+
+    const existingKeys = new Set(
+      (existingResp.data ?? []).map((item) => buildValidationDedupKey(item)),
+    )
+    const pendingKeys = new Set<string>()
+    const recordsToInsert = records.filter((record) => {
+      const dedupKey = buildValidationDedupKey(record)
+      if (existingKeys.has(dedupKey) || pendingKeys.has(dedupKey)) return false
+      pendingKeys.add(dedupKey)
+      return true
+    })
+
+    for (const batch of chunk(recordsToInsert, 300)) {
       const { error } = await supabase.from('crm_validations').insert(batch)
       if (error) throw error
     }
+
+    return {
+      inserted: recordsToInsert.length,
+      skipped: records.length - recordsToInsert.length,
+    }
   }
 
-  async function insertRenewals(rows: ParsedRow[], importFileId: string, period: string) {
+  async function insertRenewals(rows: ParsedRow[], importFileId: string, period: string): Promise<ImportInsertResult> {
     const records = rows
       .map((row) => {
         const participant = findParticipantForRenewal(row, participantIndex)
@@ -385,20 +467,43 @@ export default function Importacoes() {
       })
       .filter((item) => item.document_key)
 
-    for (const batch of chunk(records, 300)) {
+    const existingResp = await supabase
+      .from('crm_renewal_records')
+      .select('period,document_key,data_vencimento,produto,pedido')
+      .eq('period', period)
+
+    if (existingResp.error) throw existingResp.error
+
+    const existingKeys = new Set(
+      (existingResp.data ?? []).map((item) => buildRenewalDedupKey(item)),
+    )
+    const pendingKeys = new Set<string>()
+    const recordsToInsert = records.filter((record) => {
+      const dedupKey = buildRenewalDedupKey(record)
+      if (existingKeys.has(dedupKey) || pendingKeys.has(dedupKey)) return false
+      pendingKeys.add(dedupKey)
+      return true
+    })
+
+    for (const batch of chunk(recordsToInsert, 300)) {
       const { error } = await supabase.from('crm_renewal_records').insert(batch)
       if (error) throw error
+    }
+
+    return {
+      inserted: recordsToInsert.length,
+      skipped: records.length - recordsToInsert.length,
     }
   }
 
   async function importResolvedRows(file: File, type: ImportType, period: string, sourceArea: ImportSourceArea, rows: ParsedRow[], storagePathOverride?: string | null) {
-    await purgeExistingImport(type, period, sourceArea)
     const storagePath = storagePathOverride || await uploadRawFile(file, { type, period, sourceArea })
     const importFile = await createImportFile(file, { type, period, sourceArea }, storagePath)
 
-    if (type === 'revenda') await insertSales(rows, importFile.id, period)
-    if (type === 'validacoes') await insertValidations(rows, importFile.id, period)
-    if (type === 'renovacoes') await insertRenewals(rows, importFile.id, period)
+    if (type === 'revenda') return insertSales(rows, importFile.id, period)
+    if (type === 'validacoes') return insertValidations(rows, importFile.id, period)
+    if (type === 'renovacoes') return insertRenewals(rows, importFile.id, period)
+    return { inserted: 0, skipped: 0 }
   }
 
   async function processFiles(slot: ImportSlot) {
@@ -418,6 +523,9 @@ export default function Importacoes() {
     setMessage({ type: 'info', text: `Preparando importação de ${files.length} arquivo(s) para ${slot.title}.` })
 
     try {
+      let totalInserted = 0
+      let totalSkipped = 0
+
       for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
         const file = files[fileIndex]
         setMessage({ type: 'info', text: `Lendo arquivo ${fileIndex + 1} de ${files.length}: ${file.name}.` })
@@ -438,7 +546,9 @@ export default function Importacoes() {
             type: 'info',
             text: `Importando ${file.name}: período ${formatPeriod(period)} (${periodIndex + 1} de ${orderedPeriods.length}).`,
           })
-          await importResolvedRows(file, info.type, period, info.sourceArea, periodRows, sharedStoragePath)
+          const result = await importResolvedRows(file, info.type, period, info.sourceArea, periodRows, sharedStoragePath)
+          totalInserted += result.inserted
+          totalSkipped += result.skipped
         }
       }
 
@@ -446,7 +556,10 @@ export default function Importacoes() {
       if (filesResp.error) throw filesResp.error
       setHistory((filesResp.data ?? []) as ImportFileRow[])
       setFilesBySlot((current) => ({ ...current, [slotKey]: [] }))
-      setMessage({ type: 'ok', text: `Importação concluída com sucesso para ${slot.title}.` })
+      setMessage({
+        type: 'ok',
+        text: `Importação concluída para ${slot.title}. Novos registros: ${totalInserted}. Duplicados ignorados: ${totalSkipped}.`,
+      })
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Falha na importação.' })
     } finally {

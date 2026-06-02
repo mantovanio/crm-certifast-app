@@ -135,6 +135,14 @@ create table if not exists public.crm_sales (
 create index if not exists crm_sales_period_idx on public.crm_sales(period);
 create index if not exists crm_sales_participant_idx on public.crm_sales(participant_id);
 create index if not exists crm_sales_document_idx on public.crm_sales(document_key);
+create unique index if not exists crm_sales_unique_business_idx
+  on public.crm_sales (
+    period,
+    pedido,
+    coalesce(data_verificacao, ''),
+    coalesce(produto, ''),
+    participant_nome
+  );
 
 create table if not exists public.crm_validations (
   id uuid primary key default gen_random_uuid(),
@@ -159,6 +167,14 @@ create table if not exists public.crm_validations (
 create index if not exists crm_validations_period_idx on public.crm_validations(period);
 create index if not exists crm_validations_participant_idx on public.crm_validations(participant_id);
 create index if not exists crm_validations_document_idx on public.crm_validations(document_key);
+create unique index if not exists crm_validations_unique_business_idx
+  on public.crm_validations (
+    period,
+    pedido,
+    coalesce(data_validacao, ''),
+    coalesce(produto, ''),
+    participant_nome
+  );
 
 create table if not exists public.crm_renewal_records (
   id uuid primary key default gen_random_uuid(),
@@ -186,6 +202,14 @@ create table if not exists public.crm_renewal_records (
 create index if not exists crm_renewal_period_idx on public.crm_renewal_records(period);
 create index if not exists crm_renewal_document_idx on public.crm_renewal_records(document_key);
 create index if not exists crm_renewal_participant_idx on public.crm_renewal_records(participant_id);
+create unique index if not exists crm_renewal_unique_business_idx
+  on public.crm_renewal_records (
+    period,
+    document_key,
+    coalesce(data_vencimento, ''),
+    coalesce(produto, ''),
+    coalesce(pedido, '')
+  );
 
 insert into public.crm_settings (key, value)
 values (
