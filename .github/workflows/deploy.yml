@@ -13,12 +13,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validar secrets de deploy
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_SSH_PASSPHRASE: ${{ secrets.VPS_SSH_PASSPHRASE }}
+        run: |
+          if [ -z "$VPS_SSH_KEY" ]; then
+            echo "Secret VPS_SSH_KEY está vazio ou indisponível para este workflow."
+            exit 1
+          fi
+          echo "Secret VPS_SSH_KEY carregado."
+          if [ -n "$VPS_SSH_PASSPHRASE" ]; then
+            echo "Secret VPS_SSH_PASSPHRASE carregado."
+          else
+            echo "Secret VPS_SSH_PASSPHRASE não informado."
+          fi
+
       - name: Deploy na VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: 147.79.111.76
           username: root
           key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
           script: |
             set -e
             cd /opt/certifast-crm
