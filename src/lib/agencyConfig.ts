@@ -18,14 +18,14 @@ export type AgencyConfig = {
 }
 
 export const DEFAULT_AGENCY_CONFIG: AgencyConfig = {
-  nome_agencia: 'Certifast',
-  responsavel: 'Administração Certifast',
+  nome_agencia: 'AR CertiFast',
+  responsavel: 'Administração CertiFast',
   telefone: '',
   cidade: 'São Paulo - SP',
   logo_url: DEFAULT_BRAND_LOGO,
   logo_login_url: DEFAULT_BRAND_LOGO,
   logo_interna_url: DEFAULT_BRAND_LOGO,
-  login_titulo: 'CRM Certifast',
+  login_titulo: 'CRM CertiFast',
   login_subtitulo: 'Comissões, parceiros e inteligência de renovação',
   cor_primaria: '#275ca8',
   fundo_inicio: '#173d7a',
@@ -41,9 +41,9 @@ export function buildAuthBackground(startColor: string, endColor: string) {
 
 export async function fetchAgencyConfig() {
   const { data, error } = await supabase
-    .from('app_settings')
+    .from('crm_settings')
     .select('value')
-    .eq('key', 'agency')
+    .eq('key', 'agency_config')
     .maybeSingle()
 
   if (error) return { data: DEFAULT_AGENCY_CONFIG, error }
