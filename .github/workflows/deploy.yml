@@ -38,7 +38,8 @@ jobs:
           tr -d '\r' < ~/.ssh/certifast_deploy > ~/.ssh/certifast_deploy.clean
           mv ~/.ssh/certifast_deploy.clean ~/.ssh/certifast_deploy
           chmod 600 ~/.ssh/certifast_deploy
-          ssh-keygen -y -f ~/.ssh/certifast_deploy > /dev/null
+          ssh-keygen -y -f ~/.ssh/certifast_deploy > ~/.ssh/certifast_deploy.pub
+          ssh-keygen -lf ~/.ssh/certifast_deploy.pub
           echo "Chave privada validada com sucesso."
 
       - name: Testar conexão SSH
