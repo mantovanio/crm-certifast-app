@@ -1,8 +1,5 @@
 name: Deploy Certifast
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 on:
   push:
     branches:
@@ -11,50 +8,18 @@ on:
 
 jobs:
   deploy-vps:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Preparar chave SSH
-        env:
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          VPS_SSH_KEY_B64: ${{ secrets.VPS_SSH_KEY_B64 }}
+      - name: Atualizar repositório na VPS
         run: |
           set -e
-          mkdir -p ~/.ssh
+          cd /opt/certifast-crm
+          git fetch origin main
+          git checkout main
+          git pull origin main
 
-          if [ -n "$VPS_SSH_KEY_B64" ]; then
-            echo "$VPS_SSH_KEY_B64" | base64 -d > ~/.ssh/certifast_deploy
-            echo "Chave carregada a partir de VPS_SSH_KEY_B64."
-          elif [ -n "$VPS_SSH_KEY" ]; then
-            printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/certifast_deploy
-            echo "Chave carregada a partir de VPS_SSH_KEY."
-          else
-            echo "Nenhum secret de chave SSH disponível. Configure VPS_SSH_KEY ou VPS_SSH_KEY_B64."
-            exit 1
-          fi
-
-          tr -d '\r' < ~/.ssh/certifast_deploy > ~/.ssh/certifast_deploy.clean
-          mv ~/.ssh/certifast_deploy.clean ~/.ssh/certifast_deploy
-          chmod 600 ~/.ssh/certifast_deploy
-          ssh-keygen -y -f ~/.ssh/certifast_deploy > ~/.ssh/certifast_deploy.pub
-          ssh-keygen -lf ~/.ssh/certifast_deploy.pub
-          echo "Chave privada validada com sucesso."
-
-      - name: Testar conexão SSH
+      - name: Executar deploy local
         run: |
           set -e
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/certifast_deploy root@147.79.111.76 "echo conexao-ok"
-
-      - name: Deploy na VPS
-        run: |
-          set -e
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/certifast_deploy root@147.79.111.76 "
-            set -e
-            cd /opt/certifast-crm
-            git fetch origin main
-            git checkout main
-            git pull origin main
-            bash ./deploy.sh
-          "
+          cd /opt/certifast-crm
+          bash ./deploy.sh
