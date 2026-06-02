@@ -128,6 +128,28 @@ function buildRenewalDedupKey(record: {
   ].join('|')
 }
 
+type RenewalImportRecord = {
+  import_file_id: string
+  customer_id?: string | null
+  period: string
+  participant_id: string | null
+  participant_nome: string | null
+  document_key: string
+  pedido: string | null
+  data_vencimento: string | null
+  cliente: string | null
+  email: string | null
+  telefone: string | null
+  produto: string | null
+  ar: string | null
+  ponto_atendimento: string | null
+  agente: string | null
+  status_pedido: string | null
+  cpf: string | null
+  cnpj: string | null
+  razao_social: string | null
+}
+
 function documentKeyFromRaw({ cpf = '', cnpj = '', email = '', telefone = '', cliente = '' }) {
   const cnpjKey = String(cnpj).replace(/[^\d]/g, '')
   const cpfKey = String(cpf).replace(/[^\d]/g, '')
@@ -330,6 +352,41 @@ export default function Importacoes() {
     return data as ImportFileRow
   }
 
+  async function syncRenewalCustomers(records: RenewalImportRecord[]) {
+    const uniqueRecords = records.filter((record, index, all) => {
+      return all.findIndex((item) => item.document_key === record.document_key) === index
+    })
+
+    if (!uniqueRecords.length) return new Map<string, string>()
+
+    const payload = uniqueRecords.map((record) => ({
+      document_key: record.document_key,
+      participant_id: record.participant_id,
+      participant_nome: record.participant_nome,
+      nome: record.cliente,
+      email_principal: record.email,
+      telefone_principal: record.telefone,
+      cpf: record.cpf,
+      cnpj: record.cnpj,
+      razao_social: record.razao_social,
+      agente: record.agente,
+      ar: record.ar,
+      ponto_atendimento: record.ponto_atendimento,
+    }))
+
+    const upsertResp = await supabase
+      .from('crm_customers')
+      .upsert(payload, { onConflict: 'document_key' })
+      .select('id,document_key')
+
+    if (upsertResp.error) {
+      console.warn('crm_customers indisponível ou não migrado ainda:', upsertResp.error.message)
+      return new Map<string, string>()
+    }
+
+    return new Map((upsertResp.data ?? []).map((item) => [String(item.document_key), String(item.id)]))
+  }
+
   async function insertSales(rows: ParsedRow[], importFileId: string, period: string): Promise<ImportInsertResult> {
     const records = rows
       .map((row) => {
@@ -435,7 +492,7 @@ export default function Importacoes() {
   }
 
   async function insertRenewals(rows: ParsedRow[], importFileId: string, period: string): Promise<ImportInsertResult> {
-    const records = rows
+    const records: RenewalImportRecord[] = rows
       .map((row) => {
         const participant = findParticipantForRenewal(row, participantIndex)
         const cliente = String(row['Cliente'] || '').trim()
@@ -467,6 +524,12 @@ export default function Importacoes() {
       })
       .filter((item) => item.document_key)
 
+    const customerIdsByDocument = await syncRenewalCustomers(records)
+    const recordsWithCustomer = records.map((record) => ({
+      ...record,
+      customer_id: customerIdsByDocument.get(record.document_key) || null,
+    }))
+
     const existingResp = await supabase
       .from('crm_renewal_records')
       .select('period,document_key,data_vencimento,produto,pedido')
@@ -478,7 +541,7 @@ export default function Importacoes() {
       (existingResp.data ?? []).map((item) => buildRenewalDedupKey(item)),
     )
     const pendingKeys = new Set<string>()
-    const recordsToInsert = records.filter((record) => {
+    const recordsToInsert = recordsWithCustomer.filter((record) => {
       const dedupKey = buildRenewalDedupKey(record)
       if (existingKeys.has(dedupKey) || pendingKeys.has(dedupKey)) return false
       pendingKeys.add(dedupKey)
@@ -487,7 +550,12 @@ export default function Importacoes() {
 
     for (const batch of chunk(recordsToInsert, 300)) {
       const { error } = await supabase.from('crm_renewal_records').insert(batch)
-      if (error) throw error
+      if (error && !String(error.message || '').includes('customer_id')) throw error
+      if (error && String(error.message || '').includes('customer_id')) {
+        const fallbackBatch = batch.map(({ customer_id, ...rest }) => rest)
+        const fallbackResp = await supabase.from('crm_renewal_records').insert(fallbackBatch)
+        if (fallbackResp.error) throw fallbackResp.error
+      }
     }
 
     return {

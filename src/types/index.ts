@@ -100,6 +100,7 @@ export interface ValidationRow {
 export interface RenewalRow {
   id: string
   import_file_id: string | null
+  customer_id?: string | null
   period: string
   participant_id: string | null
   participant_nome: string | null
@@ -118,4 +119,25 @@ export interface RenewalRow {
   cnpj: string | null
   razao_social: string | null
   created_at: string
+}
+
+export interface CustomerRow {
+  id: string
+  document_key: string
+  participant_id: string | null
+  participant_nome: string | null
+  nome: string | null
+  email_principal: string | null
+  telefone_principal: string | null
+  cpf: string | null
+  cnpj: string | null
+  razao_social: string | null
+  agente: string | null
+  ar: string | null
+  ponto_atendimento: string | null
+  contato_status: string | null
+  observacoes: string | null
+  proximo_contato_em: string | null
+  created_at: string
+  updated_at?: string
 }
