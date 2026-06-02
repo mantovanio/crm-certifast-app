@@ -65,6 +65,18 @@ export interface SalesRow {
   created_at: string
 }
 
+export interface ImportFileRow {
+  id: string
+  file_name: string
+  file_type: 'parceiros' | 'revenda' | 'validacoes' | 'renovacoes'
+  period: string
+  source_area: 'principal' | 'historico_renovacao'
+  storage_path: string | null
+  file_size_bytes: number
+  imported_by: string | null
+  created_at: string
+}
+
 export interface ValidationRow {
   id: string
   import_file_id: string | null

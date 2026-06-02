@@ -5,6 +5,8 @@ import Login from '@/pages/Login'
 import UpdatePassword from '@/pages/UpdatePassword'
 import Dashboard from '@/pages/Dashboard'
 import Comissoes from '@/pages/Comissoes'
+import Importacoes from '@/pages/Importacoes'
+import Parceiros from '@/pages/Parceiros'
 import Renovacoes from '@/pages/Renovacoes'
 import Usuarios from '@/pages/Usuarios'
 import type { PermissaoPagina } from '@/types'
@@ -97,8 +99,8 @@ function AppContent() {
 
         {activePage === 'dashboard' && <Dashboard />}
         {activePage === 'comissoes' && <Comissoes />}
-        {activePage === 'parceiros' && <PlaceholderPage title="Parceiros" text="Aqui ficará a gestão completa de parceiros, impostos, percentuais e regras de comissionamento." />}
-        {activePage === 'importacoes' && <PlaceholderPage title="Importações" text="Aqui ficará a nova importação server-side de parceiros, vendas, validações e renovações." />}
+        {activePage === 'parceiros' && <Parceiros />}
+        {activePage === 'importacoes' && <Importacoes />}
         {activePage === 'renovacoes' && <Renovacoes />}
         {activePage === 'usuarios' && <Usuarios />}
         {activePage === 'configuracoes' && <PlaceholderPage title="Configurações" text="Aqui ficará a personalização visual do login e parâmetros globais do CRM Certifast." />}
