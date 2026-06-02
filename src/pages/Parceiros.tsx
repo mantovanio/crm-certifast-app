@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Building2, KeyRound, Percent, Save, Search, ShieldCheck, UserRound } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { formatPeriod, money, safeText, toNumber } from '@/lib/certifast'
+import { formatPercent, formatPeriod, money, normalizePercent, safeText, toNumber } from '@/lib/certifast'
 import { parseCurrency } from '@/lib/imports'
 import { supabase } from '@/lib/supabase'
 import type { Participant, SalesRow, ValidationRow } from '@/types'
@@ -24,6 +24,12 @@ type ParticipantMetrics = {
   validationsCount: number
   validationsGross: number
   validationsCommission: number
+  baseLiquidaVendas: number
+  baseLiquidaSoftware: number
+  baseLiquidaHardware: number
+  impostoRetidoVendas: number
+  impostoRetidoSoftware: number
+  impostoRetidoHardware: number
   vendaRepasse: number
   softwareRepasse: number
   hardwareRepasse: number
@@ -52,6 +58,12 @@ function emptyMetrics(): ParticipantMetrics {
     validationsCount: 0,
     validationsGross: 0,
     validationsCommission: 0,
+    baseLiquidaVendas: 0,
+    baseLiquidaSoftware: 0,
+    baseLiquidaHardware: 0,
+    impostoRetidoVendas: 0,
+    impostoRetidoSoftware: 0,
+    impostoRetidoHardware: 0,
     vendaRepasse: 0,
     softwareRepasse: 0,
     hardwareRepasse: 0,
@@ -72,26 +84,43 @@ function normalizeLookup(value: unknown) {
 
 function buildReport(participant: Participant, sales: SalesRow[], validations: ValidationRow[]) {
   const metrics = emptyMetrics()
+  const impostoPercentual = normalizePercent(participant.imposto)
+  const percentualVenda = normalizePercent(participant.percentual_venda)
+  const percentualCertificado = normalizePercent(participant.percentual_software)
+  const percentualHardware = normalizePercent(participant.percentual_hardware)
 
   for (const row of sales) {
+    const comissaoBruta = toNumber(row.comissao)
+    const impostoRetido = comissaoBruta * impostoPercentual
+    const baseLiquida = comissaoBruta - impostoRetido
     metrics.salesCount += 1
     metrics.salesRevenue += toNumber(row.faturamento)
-    metrics.salesCommission += toNumber(row.comissao)
+    metrics.salesCommission += comissaoBruta
+    metrics.impostoRetidoVendas += impostoRetido
+    metrics.baseLiquidaVendas += baseLiquida
+    metrics.vendaRepasse += baseLiquida * percentualVenda
   }
 
   for (const row of validations) {
     const softCommission = toNumber(row.comissao_software)
     const hardCommission = toNumber(row.comissao_hardware)
+    const softTax = softCommission * impostoPercentual
+    const hardTax = hardCommission * impostoPercentual
+    const softNet = softCommission - softTax
+    const hardNet = hardCommission - hardTax
     metrics.validationsCount += 1
     metrics.validationsGross += toNumber(row.bruto_software) + toNumber(row.bruto_hardware)
     metrics.validationsCommission += softCommission + hardCommission
-    metrics.softwareRepasse += softCommission * (toNumber(participant.percentual_software) / 100)
-    metrics.hardwareRepasse += hardCommission * (toNumber(participant.percentual_hardware) / 100)
+    metrics.impostoRetidoSoftware += softTax
+    metrics.impostoRetidoHardware += hardTax
+    metrics.baseLiquidaSoftware += softNet
+    metrics.baseLiquidaHardware += hardNet
+    metrics.softwareRepasse += softNet * percentualCertificado
+    metrics.hardwareRepasse += hardNet * percentualHardware
   }
 
-  metrics.vendaRepasse = metrics.salesCommission * (toNumber(participant.percentual_venda) / 100)
   metrics.brutoParceiro = metrics.vendaRepasse + metrics.softwareRepasse + metrics.hardwareRepasse
-  metrics.descontos = toNumber(participant.imposto) + toNumber(participant.contabilidade) + toNumber(participant.verificacao)
+  metrics.descontos = toNumber(participant.contabilidade) + toNumber(participant.verificacao)
   metrics.liquido = metrics.brutoParceiro - metrics.descontos
 
   return metrics
@@ -179,7 +208,7 @@ function ParticipantCard({
           <SectionTitle
             eyebrow="Cadastro"
             title="Dados principais do parceiro"
-            detail="Base do cadastro operacional, identificação da unidade e nomes usados no casamento das planilhas."
+            detail="Base do cadastro operacional, identificação da unidade e dados próprios de cada parceiro."
           />
         </div>
 
@@ -254,6 +283,42 @@ function ParticipantCard({
             className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
           />
         </label>
+
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Telefone</span>
+          <input
+            value={participant.telefone ?? ''}
+            onChange={(event) => onChange(participant.id, 'telefone', event.target.value)}
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Razão social</span>
+          <input
+            value={participant.razao_social ?? ''}
+            onChange={(event) => onChange(participant.id, 'razao_social', event.target.value)}
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">CPF/CNPJ</span>
+          <input
+            value={participant.documento ?? ''}
+            onChange={(event) => onChange(participant.id, 'documento', event.target.value)}
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Contato financeiro</span>
+          <input
+            value={participant.contato_financeiro ?? ''}
+            onChange={(event) => onChange(participant.id, 'contato_financeiro', event.target.value)}
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
       </div>
 
       <div className="mt-5 grid gap-4 xl:grid-cols-3">
@@ -261,7 +326,7 @@ function ParticipantCard({
           <SectionTitle
             eyebrow="Comissão"
             title="Percentuais e repasses"
-            detail="Percentuais usados no cálculo de comissão de vendas, software e hardware."
+            detail="Aceita percentual em dois formatos: 0,05 = 5% e 5 = 5%. O cálculo sempre retém imposto antes do repasse."
           />
         </div>
 
@@ -275,7 +340,7 @@ function ParticipantCard({
         </label>
 
         <label className="block">
-          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">% software</span>
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">% certificado</span>
           <input
             value={String(participant.percentual_software ?? 0)}
             onChange={(event) => onChange(participant.id, 'percentual_software', event.target.value)}
@@ -298,12 +363,12 @@ function ParticipantCard({
           <SectionTitle
             eyebrow="Custos"
             title="Custos fixos e situação cadastral"
-            detail="Descontos e dados financeiros usados para chegar ao líquido estimado do parceiro."
+            detail="O imposto é percentual sobre a comissão bruta da certificadora. Você pode informar 0,105 para 10,5% ou 10,5 para o mesmo efeito."
           />
         </div>
 
         <label className="block">
-          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Imposto</span>
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Imposto %</span>
           <input
             value={String(participant.imposto ?? 0)}
             onChange={(event) => onChange(participant.id, 'imposto', event.target.value)}
@@ -339,6 +404,80 @@ function ParticipantCard({
               className="h-4 w-4 rounded border-slate-300 text-blue-600"
             />
           </span>
+        </label>
+      </div>
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-4">
+        <div className="xl:col-span-4">
+          <SectionTitle
+            eyebrow="Pagamento"
+            title="Dados financeiros e recebimento"
+            detail="Campos específicos do parceiro para comissão, repasse e cadastro de pagamento."
+          />
+        </div>
+
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Favorecido</span>
+          <input
+            value={participant.favorecido ?? ''}
+            onChange={(event) => onChange(participant.id, 'favorecido', event.target.value)}
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">PIX</span>
+          <input
+            value={participant.pix ?? ''}
+            onChange={(event) => onChange(participant.id, 'pix', event.target.value)}
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Banco</span>
+          <input
+            value={participant.banco ?? ''}
+            onChange={(event) => onChange(participant.id, 'banco', event.target.value)}
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Tipo conta</span>
+          <input
+            value={participant.tipo_conta ?? ''}
+            onChange={(event) => onChange(participant.id, 'tipo_conta', event.target.value)}
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Agência</span>
+          <input
+            value={participant.agencia ?? ''}
+            onChange={(event) => onChange(participant.id, 'agencia', event.target.value)}
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Conta</span>
+          <input
+            value={participant.conta ?? ''}
+            onChange={(event) => onChange(participant.id, 'conta', event.target.value)}
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </label>
+
+        <label className="block xl:col-span-2">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Observações financeiras</span>
+          <textarea
+            value={participant.observacoes_financeiras ?? ''}
+            onChange={(event) => onChange(participant.id, 'observacoes_financeiras', event.target.value)}
+            rows={4}
+            className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+          />
         </label>
       </div>
 
@@ -392,7 +531,7 @@ function ParticipantCard({
           <SectionTitle
             eyebrow="Relatório individual"
             title={`Recebimento do mês em ${periodLabel}`}
-            detail="Resumo financeiro do parceiro com base nas vendas e validações importadas no período."
+            detail="A comissão bruta da certificadora é abatida pelo imposto do parceiro e só depois vira base de repasse."
           />
           <div className="rounded-full bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-600">
             {report.salesCount + report.validationsCount} lançamento(s)
@@ -400,18 +539,31 @@ function ParticipantCard({
         </div>
 
         <div className="mt-4 grid gap-3 xl:grid-cols-4">
-          <MetricBox label="Vendas" value={`${report.salesCount} · ${money(report.salesCommission)}`} />
-          <MetricBox label="Validações" value={`${report.validationsCount} · ${money(report.validationsCommission)}`} />
-          <MetricBox label="Bruto parceiro" value={money(report.brutoParceiro)} tone="green" />
-          <MetricBox label="Líquido estimado" value={money(report.liquido)} tone={report.liquido >= 0 ? 'green' : 'amber'} />
+          <MetricBox label="Comissão bruta vendas" value={`${report.salesCount} · ${money(report.salesCommission)}`} />
+          <MetricBox label="Comissão bruta validações" value={`${report.validationsCount} · ${money(report.validationsCommission)}`} />
+          <MetricBox label="Valor bruto do parceiro" value={money(report.brutoParceiro)} tone="green" />
+          <MetricBox label="Valor final a pagar" value={money(report.liquido)} tone={report.liquido >= 0 ? 'green' : 'amber'} />
+        </div>
+
+        <div className="mt-4 grid gap-3 xl:grid-cols-4">
+          <MetricBox label="Imposto retido vendas" value={money(report.impostoRetidoVendas)} tone="amber" />
+          <MetricBox label="Imposto retido certificado" value={money(report.impostoRetidoSoftware)} tone="amber" />
+          <MetricBox label="Imposto retido hardware" value={money(report.impostoRetidoHardware)} tone="amber" />
+          <MetricBox label="Descontos fixos" value={money(report.descontos)} tone="amber" />
         </div>
 
         <div className="mt-4 grid gap-3 xl:grid-cols-5">
+          <MetricBox label="Base líquida vendas" value={money(report.baseLiquidaVendas)} />
+          <MetricBox label="Base líquida certificado" value={money(report.baseLiquidaSoftware)} />
+          <MetricBox label="Base líquida hardware" value={money(report.baseLiquidaHardware)} />
           <MetricBox label="Repasse venda" value={money(report.vendaRepasse)} />
-          <MetricBox label="Repasse software" value={money(report.softwareRepasse)} />
+          <MetricBox label="Repasse certificado" value={money(report.softwareRepasse)} />
+        </div>
+
+        <div className="mt-4 grid gap-3 xl:grid-cols-3">
           <MetricBox label="Repasse hardware" value={money(report.hardwareRepasse)} />
-          <MetricBox label="Descontos fixos" value={money(report.descontos)} tone="amber" />
           <MetricBox label="Faturamento" value={money(report.salesRevenue + report.validationsGross)} />
+          <MetricBox label="Imposto configurado" value={formatPercent(participant.imposto)} />
         </div>
       </div>
     </article>
@@ -569,6 +721,13 @@ export default function Parceiros() {
         participant.nome_validador,
         participant.codigo_revenda,
         participant.email,
+        participant.telefone,
+        participant.razao_social,
+        participant.documento,
+        participant.contato_financeiro,
+        participant.favorecido,
+        participant.banco,
+        participant.pix,
       ].some((value) => String(value ?? '').toLowerCase().includes(term)),
     )
   }, [participants, search])
@@ -605,12 +764,23 @@ export default function Parceiros() {
         nome_validador: participant.nome_validador?.trim() || null,
         codigo_revenda: participant.codigo_revenda?.trim() || null,
         email: participant.email?.trim() || null,
+        telefone: participant.telefone?.trim() || null,
+        razao_social: participant.razao_social?.trim() || null,
+        documento: participant.documento?.trim() || null,
+        contato_financeiro: participant.contato_financeiro?.trim() || null,
         percentual_venda: participant.percentual_venda ?? 0,
         percentual_software: participant.percentual_software ?? 0,
         percentual_hardware: participant.percentual_hardware ?? 0,
         imposto: participant.imposto ?? 0,
         contabilidade: participant.contabilidade ?? 0,
         verificacao: participant.verificacao ?? 0,
+        favorecido: participant.favorecido?.trim() || null,
+        banco: participant.banco?.trim() || null,
+        agencia: participant.agencia?.trim() || null,
+        conta: participant.conta?.trim() || null,
+        tipo_conta: participant.tipo_conta?.trim() || null,
+        pix: participant.pix?.trim() || null,
+        observacoes_financeiras: participant.observacoes_financeiras?.trim() || null,
         ativo: participant.ativo,
       }
 

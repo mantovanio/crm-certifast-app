@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { BarChart3, BriefcaseBusiness, ShieldCheck } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { comparePeriodsDesc, formatPeriod, money, normalizeKey, safeText, toNumber } from '@/lib/certifast'
+import { comparePeriodsDesc, formatPeriod, money, normalizeKey, normalizePercent, safeText, toNumber } from '@/lib/certifast'
 import { supabase } from '@/lib/supabase'
 import type { Participant, SalesRow, ValidationRow } from '@/types'
 
@@ -9,7 +9,10 @@ type SummaryRow = {
   nome: string
   quantidade: number
   faturamento: number
-  comissao: number
+  comissaoBruta: number
+  impostoRetido: number
+  baseLiquida: number
+  repasse: number
 }
 
 function Card({ title, value, detail, icon: Icon }: { title: string; value: string; detail: string; icon: typeof BarChart3 }) {
@@ -132,36 +135,65 @@ export default function Comissoes() {
 
   const salesTotals = useMemo(() => {
     return sales.reduce((acc, row) => {
+      const participant = row.participant_id ? participantMap.get(row.participant_id) : null
+      const impostoPercentual = normalizePercent(participant?.imposto)
+      const percentualRepasse = normalizePercent(participant?.percentual_venda)
+      const comissaoBruta = toNumber(row.comissao)
+      const impostoRetido = comissaoBruta * impostoPercentual
+      const baseLiquida = comissaoBruta - impostoRetido
       acc.quantidade += 1
       acc.faturamento += toNumber(row.faturamento)
-      acc.comissao += toNumber(row.comissao)
+      acc.comissaoBruta += comissaoBruta
+      acc.impostoRetido += impostoRetido
+      acc.baseLiquida += baseLiquida
+      acc.repasse += baseLiquida * percentualRepasse
       return acc
-    }, { quantidade: 0, faturamento: 0, comissao: 0 })
-  }, [sales])
+    }, { quantidade: 0, faturamento: 0, comissaoBruta: 0, impostoRetido: 0, baseLiquida: 0, repasse: 0 })
+  }, [participantMap, sales])
 
   const validationTotals = useMemo(() => {
     return validations.reduce((acc, row) => {
+      const participant = row.participant_id ? participantMap.get(row.participant_id) : null
+      const impostoPercentual = normalizePercent(participant?.imposto)
+      const percentualSoftware = normalizePercent(participant?.percentual_software)
+      const percentualHardware = normalizePercent(participant?.percentual_hardware)
+      const comissaoSoftware = toNumber(row.comissao_software)
+      const comissaoHardware = toNumber(row.comissao_hardware)
+      const impostoRetido = (comissaoSoftware * impostoPercentual) + (comissaoHardware * impostoPercentual)
+      const baseLiquida = (comissaoSoftware - (comissaoSoftware * impostoPercentual)) + (comissaoHardware - (comissaoHardware * impostoPercentual))
       acc.quantidade += 1
       acc.bruto += toNumber(row.bruto_software) + toNumber(row.bruto_hardware)
-      acc.comissao += toNumber(row.comissao_software) + toNumber(row.comissao_hardware)
+      acc.comissaoBruta += comissaoSoftware + comissaoHardware
+      acc.impostoRetido += impostoRetido
+      acc.baseLiquida += baseLiquida
+      acc.repasse += (comissaoSoftware - (comissaoSoftware * impostoPercentual)) * percentualSoftware
+      acc.repasse += (comissaoHardware - (comissaoHardware * impostoPercentual)) * percentualHardware
       return acc
-    }, { quantidade: 0, bruto: 0, comissao: 0 })
-  }, [validations])
+    }, { quantidade: 0, bruto: 0, comissaoBruta: 0, impostoRetido: 0, baseLiquida: 0, repasse: 0 })
+  }, [participantMap, validations])
 
   const salesByVendedor = useMemo(() => {
     const map = new Map<string, SummaryRow>()
 
     for (const row of sales) {
       const participant = row.participant_id ? participantMap.get(row.participant_id) : null
+      const impostoPercentual = normalizePercent(participant?.imposto)
+      const percentualRepasse = normalizePercent(participant?.percentual_venda)
+      const comissaoBruta = toNumber(row.comissao)
+      const impostoRetido = comissaoBruta * impostoPercentual
+      const baseLiquida = comissaoBruta - impostoRetido
       const key = normalizeKey(participant?.nome_vendedor, row.participant_nome || 'Sem vendedor definido')
-      const current = map.get(key) ?? { nome: key, quantidade: 0, faturamento: 0, comissao: 0 }
+      const current = map.get(key) ?? { nome: key, quantidade: 0, faturamento: 0, comissaoBruta: 0, impostoRetido: 0, baseLiquida: 0, repasse: 0 }
       current.quantidade += 1
       current.faturamento += toNumber(row.faturamento)
-      current.comissao += toNumber(row.comissao)
+      current.comissaoBruta += comissaoBruta
+      current.impostoRetido += impostoRetido
+      current.baseLiquida += baseLiquida
+      current.repasse += baseLiquida * percentualRepasse
       map.set(key, current)
     }
 
-    return [...map.values()].sort((a, b) => b.comissao - a.comissao)
+    return [...map.values()].sort((a, b) => b.repasse - a.repasse)
   }, [participantMap, sales])
 
   const validationsByAgente = useMemo(() => {
@@ -169,15 +201,26 @@ export default function Comissoes() {
 
     for (const row of validations) {
       const participant = row.participant_id ? participantMap.get(row.participant_id) : null
+      const impostoPercentual = normalizePercent(participant?.imposto)
+      const percentualSoftware = normalizePercent(participant?.percentual_software)
+      const percentualHardware = normalizePercent(participant?.percentual_hardware)
+      const comissaoSoftware = toNumber(row.comissao_software)
+      const comissaoHardware = toNumber(row.comissao_hardware)
+      const impostoRetido = (comissaoSoftware * impostoPercentual) + (comissaoHardware * impostoPercentual)
+      const baseLiquida = (comissaoSoftware - (comissaoSoftware * impostoPercentual)) + (comissaoHardware - (comissaoHardware * impostoPercentual))
       const key = normalizeKey(participant?.nome_validador, row.participant_nome || 'Sem agente definido')
-      const current = map.get(key) ?? { nome: key, quantidade: 0, faturamento: 0, comissao: 0 }
+      const current = map.get(key) ?? { nome: key, quantidade: 0, faturamento: 0, comissaoBruta: 0, impostoRetido: 0, baseLiquida: 0, repasse: 0 }
       current.quantidade += 1
       current.faturamento += toNumber(row.bruto_software) + toNumber(row.bruto_hardware)
-      current.comissao += toNumber(row.comissao_software) + toNumber(row.comissao_hardware)
+      current.comissaoBruta += comissaoSoftware + comissaoHardware
+      current.impostoRetido += impostoRetido
+      current.baseLiquida += baseLiquida
+      current.repasse += (comissaoSoftware - (comissaoSoftware * impostoPercentual)) * percentualSoftware
+      current.repasse += (comissaoHardware - (comissaoHardware * impostoPercentual)) * percentualHardware
       map.set(key, current)
     }
 
-    return [...map.values()].sort((a, b) => b.comissao - a.comissao)
+    return [...map.values()].sort((a, b) => b.repasse - a.repasse)
   }, [participantMap, validations])
 
   return (
@@ -213,8 +256,8 @@ export default function Comissoes() {
         {error && <div className="rounded-[24px] border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-700">{error}</div>}
 
         <section className="grid gap-4 xl:grid-cols-3">
-          <Card title="Vendas" value={String(salesTotals.quantidade)} detail={`${money(salesTotals.comissao)} em comissão`} icon={BriefcaseBusiness} />
-          <Card title="Validações" value={String(validationTotals.quantidade)} detail={`${money(validationTotals.comissao)} em comissão`} icon={ShieldCheck} />
+          <Card title="Vendas" value={String(salesTotals.quantidade)} detail={`${money(salesTotals.repasse)} pagável`} icon={BriefcaseBusiness} />
+          <Card title="Validações" value={String(validationTotals.quantidade)} detail={`${money(validationTotals.repasse)} pagável`} icon={ShieldCheck} />
           <Card title="Período ativo" value={selectedPeriod ? formatPeriod(selectedPeriod) : '—'} detail={`${participants.length} parceiro(s) no escopo`} icon={BarChart3} />
         </section>
 
@@ -232,7 +275,9 @@ export default function Comissoes() {
                       <th className="pb-3 pr-4 font-semibold">Vendedor</th>
                       <th className="pb-3 pr-4 font-semibold">Qtd.</th>
                       <th className="pb-3 pr-4 font-semibold">Faturamento</th>
-                      <th className="pb-3 font-semibold">Comissão</th>
+                      <th className="pb-3 pr-4 font-semibold">Bruto</th>
+                      <th className="pb-3 pr-4 font-semibold">Imposto</th>
+                      <th className="pb-3 font-semibold">Pagável</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -241,7 +286,9 @@ export default function Comissoes() {
                         <td className="py-3 pr-4 font-medium text-slate-800">{row.nome}</td>
                         <td className="py-3 pr-4 text-slate-500">{row.quantidade}</td>
                         <td className="py-3 pr-4 text-slate-500">{money(row.faturamento)}</td>
-                        <td className="py-3 font-semibold text-emerald-700">{money(row.comissao)}</td>
+                        <td className="py-3 pr-4 text-slate-500">{money(row.comissaoBruta)}</td>
+                        <td className="py-3 pr-4 text-amber-700">{money(row.impostoRetido)}</td>
+                        <td className="py-3 font-semibold text-emerald-700">{money(row.repasse)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -263,7 +310,9 @@ export default function Comissoes() {
                       <th className="pb-3 pr-4 font-semibold">Agente</th>
                       <th className="pb-3 pr-4 font-semibold">Qtd.</th>
                       <th className="pb-3 pr-4 font-semibold">Bruto</th>
-                      <th className="pb-3 font-semibold">Comissão</th>
+                      <th className="pb-3 pr-4 font-semibold">Bruto</th>
+                      <th className="pb-3 pr-4 font-semibold">Imposto</th>
+                      <th className="pb-3 font-semibold">Pagável</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -272,7 +321,9 @@ export default function Comissoes() {
                         <td className="py-3 pr-4 font-medium text-slate-800">{row.nome}</td>
                         <td className="py-3 pr-4 text-slate-500">{row.quantidade}</td>
                         <td className="py-3 pr-4 text-slate-500">{money(row.faturamento)}</td>
-                        <td className="py-3 font-semibold text-emerald-700">{money(row.comissao)}</td>
+                        <td className="py-3 pr-4 text-slate-500">{money(row.comissaoBruta)}</td>
+                        <td className="py-3 pr-4 text-amber-700">{money(row.impostoRetido)}</td>
+                        <td className="py-3 font-semibold text-emerald-700">{money(row.repasse)}</td>
                       </tr>
                     ))}
                   </tbody>

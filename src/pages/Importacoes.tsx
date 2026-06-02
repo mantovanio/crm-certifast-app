@@ -167,6 +167,7 @@ function buildParticipantIndex(participants: Participant[]) {
   const byVendor = new Map<string, Participant>()
   const byValidator = new Map<string, Participant>()
   const byAlias = new Map<string, Participant>()
+  const byCodrev = new Map<string, Participant>()
   const all = [...participants]
 
   for (const item of participants) {
@@ -174,6 +175,7 @@ function buildParticipantIndex(participants: Participant[]) {
     if (item.nome_validador) byValidator.set(normalizeText(item.nome_validador), item)
     byVendor.set(normalizeText(item.nome), item)
     byValidator.set(normalizeText(item.nome), item)
+    if (item.codigo_revenda) byCodrev.set(String(item.codigo_revenda).replace(/[^\dA-Za-z]/g, '').toUpperCase(), item)
 
     const aliases = [item.nome, item.nome_vendedor, item.nome_validador, item.fantasia].filter(Boolean) as string[]
     for (const alias of aliases) {
@@ -184,7 +186,21 @@ function buildParticipantIndex(participants: Participant[]) {
     }
   }
 
-  return { byVendor, byValidator, byAlias, all }
+  return { byVendor, byValidator, byAlias, byCodrev, all }
+}
+
+function extractCodrev(row: ParsedRow) {
+  const value =
+    row['CodRev'] ||
+    row['CODREV'] ||
+    row['Cod Rev'] ||
+    row['Código Revenda'] ||
+    row['Codigo Revenda'] ||
+    row['Código de Revenda'] ||
+    row['Codigo de Revenda'] ||
+    ''
+
+  return String(value).replace(/[^\dA-Za-z]/g, '').toUpperCase()
 }
 
 function findParticipantForRenewal(
@@ -390,12 +406,16 @@ export default function Importacoes() {
   async function insertSales(rows: ParsedRow[], importFileId: string, period: string): Promise<ImportInsertResult> {
     const records = rows
       .map((row) => {
-        const participant = participantIndex.byVendor.get(normalizeText(row['Nome Vendedor']))
+        const codrev = extractCodrev(row)
+        const participant =
+          (codrev ? participantIndex.byCodrev.get(codrev) : null) ||
+          participantIndex.byVendor.get(normalizeText(row['Nome Vendedor'])) ||
+          null
         return {
           import_file_id: importFileId,
           period,
           participant_id: participant?.id || null,
-          participant_nome: participant?.nome || String(row['Nome Vendedor'] || '').trim(),
+          participant_nome: participant?.nome || String(row['Nome Vendedor'] || row['CodRev'] || '').trim(),
           document_key: documentKeyFromRaw({ cliente: row['Nome Cliente'] }),
           pedido: String(row['Pedido'] || '').trim(),
           cliente: String(row['Nome Cliente'] || '').trim() || null,
@@ -441,12 +461,16 @@ export default function Importacoes() {
   async function insertValidations(rows: ParsedRow[], importFileId: string, period: string): Promise<ImportInsertResult> {
     const records = rows
       .map((row) => {
-        const participant = participantIndex.byValidator.get(normalizeText(row['Desc. Agente Val.'] || row['Agente']))
+        const codrev = extractCodrev(row)
+        const participant =
+          (codrev ? participantIndex.byCodrev.get(codrev) : null) ||
+          participantIndex.byValidator.get(normalizeText(row['Desc. Agente Val.'] || row['Agente'])) ||
+          null
         return {
           import_file_id: importFileId,
           period,
           participant_id: participant?.id || null,
-          participant_nome: participant?.nome || String(row['Desc. Agente Val.'] || row['Agente'] || '').trim(),
+          participant_nome: participant?.nome || String(row['Desc. Agente Val.'] || row['Agente'] || row['CodRev'] || '').trim(),
           document_key: documentKeyFromRaw({ cliente: row['Nome Cliente'] }),
           pedido: String(row['Pedido'] || '').trim(),
           cliente: String(row['Nome Cliente'] || '').trim() || null,

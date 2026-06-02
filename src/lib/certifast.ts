@@ -3,6 +3,16 @@ export function toNumber(value: unknown) {
   return Number.isFinite(num) ? num : 0
 }
 
+export function normalizePercent(value: unknown) {
+  const num = toNumber(value)
+  if (Math.abs(num) <= 1) return num
+  return num / 100
+}
+
+export function formatPercent(value: unknown) {
+  return `${(normalizePercent(value) * 100).toFixed(2)}%`
+}
+
 export function money(value: number) {
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }

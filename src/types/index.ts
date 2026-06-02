@@ -28,6 +28,10 @@ export interface Participant {
   fantasia: string | null
   faixa: string | null
   email: string | null
+  telefone: string | null
+  razao_social: string | null
+  documento: string | null
+  contato_financeiro: string | null
   codigo_revenda: string | null
   imposto: number
   contabilidade: number
@@ -35,6 +39,13 @@ export interface Participant {
   percentual_venda: number
   percentual_software: number
   percentual_hardware: number
+  favorecido: string | null
+  banco: string | null
+  agencia: string | null
+  conta: string | null
+  tipo_conta: string | null
+  pix: string | null
+  observacoes_financeiras: string | null
   ativo: boolean
   created_at: string
   updated_at?: string
