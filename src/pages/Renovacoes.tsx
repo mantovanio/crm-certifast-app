@@ -3,7 +3,9 @@ import { Phone, Save, Search, UserRound } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { comparePeriodsDesc, formatPeriod, safeText } from '@/lib/certifast'
 import { supabase } from '@/lib/supabase'
-import type { CustomerRow, RenewalRow } from '@/types'
+import type { CustomerRow, RenewalRow, SalesRow, ValidationRow } from '@/types'
+
+type RenewalSituation = 'renovado' | 'em_validacao' | 'a_renovar' | 'a_vencer'
 
 type RenewalCustomer = {
   customerId: string | null
@@ -23,6 +25,10 @@ type RenewalCustomer = {
   proximoContatoEm: string | null
   ultimoVencimento: string | null
   statusAtual: string | null
+  situacao: RenewalSituation
+  situacaoDetalhe: string
+  ultimaVendaEm: string | null
+  ultimaValidacaoEm: string | null
   totalRegistros: number
   history: RenewalRow[]
 }
@@ -64,7 +70,92 @@ function chooseLatestText(rows: RenewalRow[], picker: (row: RenewalRow) => strin
   return null
 }
 
-function buildCustomers(rows: RenewalRow[], customersByDocument: Map<string, CustomerRow>) {
+function normalizeCustomerKey(value: unknown) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+function nextPeriod(period: string, offset: number) {
+  if (!/^\d{6}$/.test(period)) return period
+  const month = Number(period.slice(0, 2))
+  const year = Number(period.slice(2))
+  const date = new Date(year, month - 1 + offset, 1)
+  return `${String(date.getMonth() + 1).padStart(2, '0')}${date.getFullYear()}`
+}
+
+function buildRelatedPeriods(period: string) {
+  return [nextPeriod(period, -1), period, nextPeriod(period, 1), nextPeriod(period, 2)]
+}
+
+function isOperationallyValid(status: string | null | undefined) {
+  const normalized = normalizeLookup(status)
+  if (!normalized) return true
+  return !['cancelado', 'cancelada', 'reprovado', 'reprovada', 'estornado', 'estornada'].some((item) => normalized.includes(item))
+}
+
+function compareDateDesc(a: string | null | undefined, b: string | null | undefined) {
+  return dateSortValue(b).localeCompare(dateSortValue(a))
+}
+
+function classifyCustomer(
+  customer: Pick<RenewalCustomer, 'ultimoVencimento' | 'statusAtual'>,
+  salesMatches: SalesRow[],
+  validationMatches: ValidationRow[],
+): Pick<RenewalCustomer, 'situacao' | 'situacaoDetalhe' | 'ultimaVendaEm' | 'ultimaValidacaoEm'> {
+  const validSales = salesMatches.filter((item) => isOperationallyValid(item.status)).sort((a, b) => compareDateDesc(a.data_verificacao || a.data_pedido, b.data_verificacao || b.data_pedido))
+  const validValidations = validationMatches.filter((item) => isOperationallyValid(item.status)).sort((a, b) => compareDateDesc(a.data_validacao || a.data_pedido, b.data_validacao || b.data_pedido))
+  const ultimaVendaEm = validSales[0]?.data_verificacao || validSales[0]?.data_pedido || null
+  const ultimaValidacaoEm = validValidations[0]?.data_validacao || validValidations[0]?.data_pedido || null
+  const hoje = new Date()
+  const vencimento = customer.ultimoVencimento ? dateSortValue(customer.ultimoVencimento) : ''
+  const hojeKey = `${hoje.getFullYear()}${String(hoje.getMonth() + 1).padStart(2, '0')}${String(hoje.getDate()).padStart(2, '0')}`
+
+  if (validValidations.length) {
+    return {
+      situacao: 'renovado',
+      situacaoDetalhe: `Validação encontrada em ${safeText(ultimaValidacaoEm)}.`,
+      ultimaVendaEm,
+      ultimaValidacaoEm,
+    }
+  }
+
+  if (validSales.length) {
+    return {
+      situacao: 'em_validacao',
+      situacaoDetalhe: `Venda encontrada em ${safeText(ultimaVendaEm)} aguardando fechamento.`,
+      ultimaVendaEm,
+      ultimaValidacaoEm,
+    }
+  }
+
+  if (vencimento && vencimento >= hojeKey) {
+    return {
+      situacao: 'a_vencer',
+      situacaoDetalhe: `Vencimento futuro em ${safeText(customer.ultimoVencimento)} sem venda vinculada ainda.`,
+      ultimaVendaEm,
+      ultimaValidacaoEm,
+    }
+  }
+
+  return {
+    situacao: 'a_renovar',
+    situacaoDetalhe: `Sem venda ou validação vinculada após o vencimento ${safeText(customer.ultimoVencimento)}.`,
+    ultimaVendaEm,
+    ultimaValidacaoEm,
+  }
+}
+
+function buildCustomers(
+  rows: RenewalRow[],
+  customersByDocument: Map<string, CustomerRow>,
+  salesByKey: Map<string, SalesRow[]>,
+  validationsByKey: Map<string, ValidationRow[]>,
+) {
   const grouped = new Map<string, RenewalRow[]>()
 
   for (const row of rows) {
@@ -78,6 +169,14 @@ function buildCustomers(rows: RenewalRow[], customersByDocument: Map<string, Cus
     const orderedHistory = [...history].sort((a, b) => dateSortValue(b.data_vencimento).localeCompare(dateSortValue(a.data_vencimento)))
     const latest = orderedHistory[0]
     const persisted = customersByDocument.get(documentKey)
+    const nameKey = normalizeCustomerKey(persisted?.nome || latest?.cliente)
+    const salesMatches = [...(salesByKey.get(documentKey) ?? []), ...(nameKey ? salesByKey.get(nameKey) ?? [] : [])]
+    const validationMatches = [...(validationsByKey.get(documentKey) ?? []), ...(nameKey ? validationsByKey.get(nameKey) ?? [] : [])]
+    const situation = classifyCustomer(
+      { ultimoVencimento: latest?.data_vencimento || null, statusAtual: chooseLatestText(orderedHistory, (row) => row.status_pedido) },
+      salesMatches,
+      validationMatches,
+    )
 
     return {
       customerId: persisted?.id || latest?.customer_id || null,
@@ -97,6 +196,10 @@ function buildCustomers(rows: RenewalRow[], customersByDocument: Map<string, Cus
       proximoContatoEm: persisted?.proximo_contato_em || null,
       ultimoVencimento: latest?.data_vencimento || null,
       statusAtual: chooseLatestText(orderedHistory, (row) => row.status_pedido),
+      situacao: situation.situacao,
+      situacaoDetalhe: situation.situacaoDetalhe,
+      ultimaVendaEm: situation.ultimaVendaEm,
+      ultimaValidacaoEm: situation.ultimaValidacaoEm,
       totalRegistros: orderedHistory.length,
       history: orderedHistory,
     } satisfies RenewalCustomer
@@ -109,6 +212,8 @@ export default function Renovacoes() {
 
   const [rows, setRows] = useState<RenewalRow[]>([])
   const [customerRows, setCustomerRows] = useState<CustomerRow[]>([])
+  const [salesRows, setSalesRows] = useState<SalesRow[]>([])
+  const [validationRows, setValidationRows] = useState<ValidationRow[]>([])
   const [periods, setPeriods] = useState<string[]>([])
   const [selectedPeriod, setSelectedPeriod] = useState('')
   const [search, setSearch] = useState('')
@@ -156,6 +261,8 @@ export default function Renovacoes() {
   useEffect(() => {
     if (!selectedPeriod) {
       setRows([])
+      setSalesRows([])
+      setValidationRows([])
       return
     }
 
@@ -166,17 +273,34 @@ export default function Renovacoes() {
       setError(null)
 
       try {
-        const { data, error } = await supabase
-          .from('crm_renewal_records')
-          .select('*')
-          .eq('period', selectedPeriod)
-          .order('created_at', { ascending: false })
+        const relatedPeriods = buildRelatedPeriods(selectedPeriod)
+        const [renewalsResp, salesResp, validationsResp] = await Promise.all([
+          supabase
+            .from('crm_renewal_records')
+            .select('*')
+            .eq('period', selectedPeriod)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('crm_sales')
+            .select('*')
+            .in('period', relatedPeriods)
+            .order('created_at', { ascending: false }),
+          supabase
+            .from('crm_validations')
+            .select('*')
+            .in('period', relatedPeriods)
+            .order('created_at', { ascending: false }),
+        ])
 
-        if (error) throw error
+        if (renewalsResp.error) throw renewalsResp.error
+        if (salesResp.error) throw salesResp.error
+        if (validationsResp.error) throw validationsResp.error
         if (!active) return
 
-        const renewalRows = (data ?? []) as RenewalRow[]
+        const renewalRows = (renewalsResp.data ?? []) as RenewalRow[]
         setRows(renewalRows)
+        setSalesRows((salesResp.data ?? []) as SalesRow[])
+        setValidationRows((validationsResp.data ?? []) as ValidationRow[])
 
         const documentKeys = [...new Set(renewalRows.map((row) => row.document_key).filter(Boolean))]
         if (!documentKeys.length) {
@@ -213,7 +337,36 @@ export default function Renovacoes() {
     [customerRows],
   )
 
-  const customers = useMemo(() => buildCustomers(rows, customersByDocument), [customersByDocument, rows])
+  const salesByKey = useMemo(() => {
+    const map = new Map<string, SalesRow[]>()
+    for (const row of salesRows) {
+      const keys = [row.document_key, normalizeCustomerKey(row.cliente)]
+      for (const key of keys.filter(Boolean) as string[]) {
+        const current = map.get(key) ?? []
+        current.push(row)
+        map.set(key, current)
+      }
+    }
+    return map
+  }, [salesRows])
+
+  const validationsByKey = useMemo(() => {
+    const map = new Map<string, ValidationRow[]>()
+    for (const row of validationRows) {
+      const keys = [row.document_key, normalizeCustomerKey(row.cliente)]
+      for (const key of keys.filter(Boolean) as string[]) {
+        const current = map.get(key) ?? []
+        current.push(row)
+        map.set(key, current)
+      }
+    }
+    return map
+  }, [validationRows])
+
+  const customers = useMemo(
+    () => buildCustomers(rows, customersByDocument, salesByKey, validationsByKey),
+    [customersByDocument, rows, salesByKey, validationsByKey],
+  )
 
   const filteredCustomers = useMemo(() => {
     const term = normalizeLookup(search)
@@ -277,6 +430,16 @@ export default function Renovacoes() {
       map.set(key, (map.get(key) ?? 0) + 1)
     }
     return [...map.entries()].sort((a, b) => b[1] - a[1])
+  }, [customers])
+
+  const statusTotals = useMemo(() => {
+    return customers.reduce(
+      (acc, customer) => {
+        acc[customer.situacao] += 1
+        return acc
+      },
+      { renovado: 0, em_validacao: 0, a_renovar: 0, a_vencer: 0 },
+    )
   }, [customers])
 
   async function saveCustomer() {
@@ -372,9 +535,9 @@ export default function Renovacoes() {
 
         <section className="grid gap-4 xl:grid-cols-4">
           <SummaryCard label="Registros" value={String(rows.length)} detail="Linhas carregadas da base de renovação." />
-          <SummaryCard label="Clientes únicos" value={String(customers.length)} detail="Carteira consolidada por documento/chave." />
-          <SummaryCard label="Agentes" value={String(byAgent.length)} detail="Agentes distintos no período." />
-          <SummaryCard label="Período ativo" value={selectedPeriod ? formatPeriod(selectedPeriod) : '—'} detail="Pesquisa pronta para retomada comercial." />
+          <SummaryCard label="Clientes únicos" value={String(customers.length)} detail={`${statusTotals.renovado} renovado(s) no cruzamento automático.`} />
+          <SummaryCard label="Pendentes" value={String(statusTotals.a_renovar)} detail={`${statusTotals.em_validacao} em validação e ${statusTotals.a_vencer} a vencer.`} />
+          <SummaryCard label="Período ativo" value={selectedPeriod ? formatPeriod(selectedPeriod) : '—'} detail={`${byAgent.length} agente(s) distintos no período.`} />
         </section>
 
         <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
@@ -399,6 +562,7 @@ export default function Renovacoes() {
                         <th className="px-4 py-3 font-semibold">Contato</th>
                         <th className="px-4 py-3 font-semibold">Documento</th>
                         <th className="px-4 py-3 font-semibold">Agente</th>
+                        <th className="px-4 py-3 font-semibold">Situação</th>
                         <th className="px-4 py-3 font-semibold">Vencimento</th>
                       </tr>
                     </thead>
@@ -424,6 +588,25 @@ export default function Renovacoes() {
                             </td>
                             <td className="px-4 py-4 text-slate-600">{safeText(customer.cpf || customer.cnpj)}</td>
                             <td className="px-4 py-4 text-slate-600">{safeText(customer.agente || customer.participantNome)}</td>
+                            <td className="px-4 py-4">
+                              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                customer.situacao === 'renovado'
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : customer.situacao === 'em_validacao'
+                                    ? 'bg-blue-100 text-blue-700'
+                                    : customer.situacao === 'a_vencer'
+                                      ? 'bg-amber-100 text-amber-700'
+                                      : 'bg-red-100 text-red-700'
+                              }`}>
+                                {customer.situacao === 'renovado'
+                                  ? 'Renovado'
+                                  : customer.situacao === 'em_validacao'
+                                    ? 'Em validação'
+                                    : customer.situacao === 'a_vencer'
+                                      ? 'A vencer'
+                                      : 'A renovar'}
+                              </span>
+                            </td>
                             <td className="px-4 py-4 text-slate-600">{safeText(customer.ultimoVencimento)}</td>
                           </tr>
                         )
@@ -474,6 +657,7 @@ export default function Renovacoes() {
                       <p className="mt-2 text-sm text-slate-500">
                         Último vencimento em {safeText(draftCustomer.ultimoVencimento)} · status atual {safeText(draftCustomer.statusAtual)}
                       </p>
+                      <p className="mt-2 text-sm text-slate-500">{draftCustomer.situacaoDetalhe}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -540,6 +724,8 @@ export default function Renovacoes() {
                         <div><span className="font-semibold">Agente:</span> {safeText(draftCustomer.agente)}</div>
                         <div><span className="font-semibold">AR:</span> {safeText(draftCustomer.ar)}</div>
                         <div><span className="font-semibold">Ponto de atendimento:</span> {safeText(draftCustomer.pontoAtendimento)}</div>
+                        <div><span className="font-semibold">Última venda:</span> {safeText(draftCustomer.ultimaVendaEm)}</div>
+                        <div><span className="font-semibold">Última validação:</span> {safeText(draftCustomer.ultimaValidacaoEm)}</div>
                         <label className="block">
                           <span className="mb-2 block font-semibold">Status de contato</span>
                           <input

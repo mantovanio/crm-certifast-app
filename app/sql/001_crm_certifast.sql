@@ -15,7 +15,7 @@ create table if not exists public.crm_profiles (
   nome text not null,
   email text not null unique,
   role text not null default 'participant' check (role in ('admin', 'participant')),
-  status text not null default 'active' check (status in ('active', 'inactive')),
+  status text not null default 'inactive' check (status in ('active', 'inactive')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -38,7 +38,7 @@ begin
     coalesce(new.raw_user_meta_data ->> 'nome', split_part(new.email, '@', 1)),
     new.email,
     'participant',
-    'active'
+    'inactive'
   )
   on conflict (id) do update
   set nome = excluded.nome,
@@ -390,6 +390,12 @@ create policy crm_profiles_insert_self on public.crm_profiles
 for insert to authenticated
 with check (id = auth.uid() or public.crm_is_admin());
 
+drop policy if exists crm_profiles_admin_write on public.crm_profiles;
+create policy crm_profiles_admin_write on public.crm_profiles
+for all to authenticated
+using (public.crm_is_admin())
+with check (public.crm_is_admin());
+
 drop policy if exists crm_participants_select on public.crm_participants;
 create policy crm_participants_select on public.crm_participants
 for select to authenticated
@@ -513,6 +519,11 @@ create policy crm_settings_admin_only on public.crm_settings
 for all to authenticated
 using (public.crm_is_admin())
 with check (public.crm_is_admin());
+
+drop policy if exists crm_settings_public_read on public.crm_settings;
+create policy crm_settings_public_read on public.crm_settings
+for select to anon, authenticated
+using (key in ('agency_config', 'auth_config'));
 
 insert into storage.buckets (id, name, public)
 values ('crm-certifast-imports', 'crm-certifast-imports', false)

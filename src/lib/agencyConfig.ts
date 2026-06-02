@@ -17,6 +17,10 @@ export type AgencyConfig = {
   fundo_fim: string
 }
 
+export type AuthConfig = {
+  allow_public_signup: boolean
+}
+
 export const DEFAULT_AGENCY_CONFIG: AgencyConfig = {
   nome_agencia: 'AR CertiFast',
   responsavel: 'Administração CertiFast',
@@ -30,6 +34,10 @@ export const DEFAULT_AGENCY_CONFIG: AgencyConfig = {
   cor_primaria: '#275ca8',
   fundo_inicio: '#173d7a',
   fundo_fim: '#275ca8',
+}
+
+export const DEFAULT_AUTH_CONFIG: AuthConfig = {
+  allow_public_signup: true,
 }
 
 export function buildAuthBackground(startColor: string, endColor: string) {
@@ -51,6 +59,22 @@ export async function fetchAgencyConfig() {
 
   return {
     data: { ...DEFAULT_AGENCY_CONFIG, ...(data.value as Partial<AgencyConfig>) },
+    error: null,
+  }
+}
+
+export async function fetchAuthConfig() {
+  const { data, error } = await supabase
+    .from('crm_settings')
+    .select('value')
+    .eq('key', 'auth_config')
+    .maybeSingle()
+
+  if (error) return { data: DEFAULT_AUTH_CONFIG, error }
+  if (!data?.value || typeof data.value !== 'object') return { data: DEFAULT_AUTH_CONFIG, error: null }
+
+  return {
+    data: { ...DEFAULT_AUTH_CONFIG, ...(data.value as Partial<AuthConfig>) },
     error: null,
   }
 }

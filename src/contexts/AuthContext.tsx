@@ -64,9 +64,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       id: currentUser.id,
       nome: String(currentUser.user_metadata?.nome || currentUser.email?.split('@')[0] || 'Usuário').trim(),
       email: String(currentUser.email || '').trim(),
-      role: 'participant',
-      status: 'active',
-    }
+    role: 'participant',
+    status: 'inactive',
+  }
 
     const { error } = await supabase.from('crm_profiles').upsert(payload, { onConflict: 'id' })
     if (error) throw new Error('Seu usuário autenticou, mas o perfil do CRM não pôde ser inicializado.')

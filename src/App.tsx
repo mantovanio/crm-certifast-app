@@ -9,6 +9,7 @@ import Importacoes from '@/pages/Importacoes'
 import Parceiros from '@/pages/Parceiros'
 import Renovacoes from '@/pages/Renovacoes'
 import Usuarios from '@/pages/Usuarios'
+import Configuracoes from '@/pages/Configuracoes'
 import type { PermissaoPagina } from '@/types'
 import { DEFAULT_AGENCY_CONFIG, fetchAgencyConfig } from '@/lib/agencyConfig'
 import { isAdminProfile, PAGE_LABELS, PERFIL_LABEL, resolveAllowedPages, resolveDefaultPage } from '@/lib/security'
@@ -97,13 +98,30 @@ function AppContent() {
           </div>
         </header>
 
+        <nav className="md:hidden border-b border-slate-200 bg-white px-3 py-3">
+          <div className="flex gap-2 overflow-x-auto">
+            {allowedPages.map((allowedPage) => (
+              <button
+                key={allowedPage}
+                type="button"
+                onClick={() => setPage(allowedPage)}
+                className={`shrink-0 rounded-full px-4 py-2 text-xs font-semibold ${
+                  activePage === allowedPage ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {PAGE_LABELS[allowedPage]}
+              </button>
+            ))}
+          </div>
+        </nav>
+
         {activePage === 'dashboard' && <Dashboard />}
         {activePage === 'comissoes' && <Comissoes />}
         {activePage === 'parceiros' && <Parceiros />}
         {activePage === 'importacoes' && <Importacoes />}
         {activePage === 'renovacoes' && <Renovacoes />}
         {activePage === 'usuarios' && <Usuarios />}
-        {activePage === 'configuracoes' && <PlaceholderPage title="Configurações" text="Aqui ficará a personalização visual do login e parâmetros globais do CRM Certifast." />}
+        {activePage === 'configuracoes' && <Configuracoes />}
       </div>
     </div>
   )

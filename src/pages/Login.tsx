@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Shield, Eye, EyeOff, ArrowLeft, Loader2 } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
-import { DEFAULT_AGENCY_CONFIG, buildAuthBackground, fetchAgencyConfig } from '@/lib/agencyConfig'
+import { DEFAULT_AGENCY_CONFIG, DEFAULT_AUTH_CONFIG, buildAuthBackground, fetchAgencyConfig, fetchAuthConfig } from '@/lib/agencyConfig'
 
 type View = 'login' | 'register' | 'forgot'
 
@@ -38,6 +38,7 @@ export default function Login() {
   const { signIn, signUp, resetPassword } = useAuth()
   const [view, setView] = useState<View>('login')
   const [agencyConfig, setAgencyConfig] = useState(DEFAULT_AGENCY_CONFIG)
+  const [authConfig, setAuthConfig] = useState(DEFAULT_AUTH_CONFIG)
 
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
@@ -59,11 +60,14 @@ export default function Login() {
 
   useEffect(() => {
     let active = true
-    fetchAgencyConfig().then(({ data }) => {
-      if (active) setAgencyConfig(data)
+    Promise.all([fetchAgencyConfig(), fetchAuthConfig()]).then(([agencyResp, authResp]) => {
+      if (!active) return
+      setAgencyConfig(agencyResp.data)
+      setAuthConfig(authResp.data)
+      if (!authResp.data.allow_public_signup && view === 'register') setView('login')
     })
     return () => { active = false }
-  }, [])
+  }, [view])
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -77,6 +81,7 @@ export default function Login() {
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault()
     setRegError(null)
+    if (!authConfig.allow_public_signup) return setRegError('Novos cadastros estão temporariamente bloqueados. Solicite liberação ao administrador.')
     if (regPass !== regConfirm) return setRegError('As senhas não coincidem.')
     setRegLoading(true)
     const { error } = await signUp({ nome: regNome, email: regEmail, password: regPass })
@@ -122,7 +127,9 @@ export default function Login() {
 
           <div className="mt-6 inline-flex rounded-2xl bg-slate-100 p-1">
             <button onClick={() => setView('login')} className={`rounded-2xl px-5 py-3 text-sm font-semibold ${view === 'login' ? 'bg-white text-blue-700 shadow' : 'text-slate-500'}`}>Entrar</button>
-            <button onClick={() => setView('register')} className={`rounded-2xl px-5 py-3 text-sm font-semibold ${view === 'register' ? 'bg-white text-blue-700 shadow' : 'text-slate-500'}`}>Criar acesso</button>
+            {authConfig.allow_public_signup && (
+              <button onClick={() => setView('register')} className={`rounded-2xl px-5 py-3 text-sm font-semibold ${view === 'register' ? 'bg-white text-blue-700 shadow' : 'text-slate-500'}`}>Criar acesso</button>
+            )}
           </div>
 
           {view === 'login' && (
@@ -145,7 +152,7 @@ export default function Login() {
             </form>
           )}
 
-          {view === 'register' && (
+          {view === 'register' && authConfig.allow_public_signup && (
             <form onSubmit={handleRegister} className="mt-8 space-y-4">
               <input value={regNome} onChange={e => setRegNome(e.target.value)} required placeholder="Seu nome" className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
               <input type="email" value={regEmail} onChange={e => setRegEmail(e.target.value)} required placeholder="Seu e-mail" className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500" />
@@ -157,6 +164,12 @@ export default function Login() {
                 {regLoading ? 'Criando...' : 'Criar acesso'}
               </button>
             </form>
+          )}
+
+          {view !== 'register' && !authConfig.allow_public_signup && (
+            <div className="mt-8 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+              Novos cadastros estão bloqueados. O acesso deve ser liberado pelo administrador.
+            </div>
           )}
 
           {view === 'forgot' && (
