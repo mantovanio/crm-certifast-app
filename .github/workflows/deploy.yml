@@ -35,18 +35,21 @@ jobs:
             exit 1
           fi
 
+          tr -d '\r' < ~/.ssh/certifast_deploy > ~/.ssh/certifast_deploy.clean
+          mv ~/.ssh/certifast_deploy.clean ~/.ssh/certifast_deploy
           chmod 600 ~/.ssh/certifast_deploy
-          ssh-keyscan -H 147.79.111.76 >> ~/.ssh/known_hosts
+          ssh-keygen -y -f ~/.ssh/certifast_deploy > /dev/null
+          echo "Chave privada validada com sucesso."
 
       - name: Testar conexão SSH
         run: |
           set -e
-          ssh -i ~/.ssh/certifast_deploy root@147.79.111.76 "echo conexao-ok"
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/certifast_deploy root@147.79.111.76 "echo conexao-ok"
 
       - name: Deploy na VPS
         run: |
           set -e
-          ssh -i ~/.ssh/certifast_deploy root@147.79.111.76 "
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i ~/.ssh/certifast_deploy root@147.79.111.76 "
             set -e
             cd /opt/certifast-crm
             git fetch origin main
