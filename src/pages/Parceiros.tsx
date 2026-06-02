@@ -126,6 +126,16 @@ function MetricBox({ label, value, tone = 'default' }: { label: string; value: s
   )
 }
 
+function SectionTitle({ eyebrow, title, detail }: { eyebrow: string; title: string; detail: string }) {
+  return (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">{eyebrow}</p>
+      <h4 className="mt-2 text-base font-bold text-slate-900">{title}</h4>
+      <p className="mt-1 text-sm text-slate-500">{detail}</p>
+    </div>
+  )
+}
+
 function ParticipantCard({
   participant,
   accessRows,
@@ -165,6 +175,32 @@ function ParticipantCard({
       </div>
 
       <div className="mt-5 grid gap-4 xl:grid-cols-2">
+        <div className="xl:col-span-2">
+          <SectionTitle
+            eyebrow="Cadastro"
+            title="Dados principais do parceiro"
+            detail="Base do cadastro operacional, identificação da unidade e nomes usados no casamento das planilhas."
+          />
+        </div>
+
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Nome base</span>
+          <input
+            value={participant.nome}
+            disabled
+            className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-500 outline-none"
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Slug técnico</span>
+          <input
+            value={participant.slug}
+            disabled
+            className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-500 outline-none"
+          />
+        </label>
+
         <label className="block">
           <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Fantasia / unidade</span>
           <input
@@ -221,6 +257,14 @@ function ParticipantCard({
       </div>
 
       <div className="mt-5 grid gap-4 xl:grid-cols-3">
+        <div className="xl:col-span-3">
+          <SectionTitle
+            eyebrow="Comissão"
+            title="Percentuais e repasses"
+            detail="Percentuais usados no cálculo de comissão de vendas, software e hardware."
+          />
+        </div>
+
         <label className="block">
           <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">% venda</span>
           <input
@@ -250,6 +294,14 @@ function ParticipantCard({
       </div>
 
       <div className="mt-5 grid gap-4 xl:grid-cols-4">
+        <div className="xl:col-span-4">
+          <SectionTitle
+            eyebrow="Custos"
+            title="Custos fixos e situação cadastral"
+            detail="Descontos e dados financeiros usados para chegar ao líquido estimado do parceiro."
+          />
+        </div>
+
         <label className="block">
           <span className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Imposto</span>
           <input
@@ -292,13 +344,11 @@ function ParticipantCard({
 
       <div className="mt-6 rounded-[24px] border border-slate-200 bg-slate-50 p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Acesso</p>
-            <h4 className="mt-2 text-base font-bold text-slate-900">Usuários vinculados e senha</h4>
-            <p className="mt-1 text-sm text-slate-500">
-              O CRM não guarda senha em texto. O controle aqui é pelo e-mail de acesso e pela redefinição segura via Supabase.
-            </p>
-          </div>
+          <SectionTitle
+            eyebrow="Acesso"
+            title="Usuários vinculados e senha"
+            detail="O CRM não guarda senha em texto. O controle aqui é pelo e-mail de acesso e pela redefinição segura via Supabase."
+          />
           <button
             type="button"
             disabled={resetting || !mainAccessEmail}
@@ -339,10 +389,11 @@ function ParticipantCard({
 
       <div className="mt-6 rounded-[24px] border border-slate-200 bg-white p-5">
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Relatório individual</p>
-            <h4 className="mt-2 text-base font-bold text-slate-900">Recebimento do mês em {periodLabel}</h4>
-          </div>
+          <SectionTitle
+            eyebrow="Relatório individual"
+            title={`Recebimento do mês em ${periodLabel}`}
+            detail="Resumo financeiro do parceiro com base nas vendas e validações importadas no período."
+          />
           <div className="rounded-full bg-slate-100 px-4 py-2 text-xs font-semibold text-slate-600">
             {report.salesCount + report.validationsCount} lançamento(s)
           </div>

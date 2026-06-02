@@ -25,7 +25,6 @@ type RenewalCustomer = {
   statusAtual: string | null
   totalRegistros: number
   history: RenewalRow[]
-  persisted: boolean
 }
 
 function SummaryCard({ label, value, detail }: { label: string; value: string; detail: string }) {
@@ -51,10 +50,8 @@ function normalizeLookup(value: unknown) {
 function dateSortValue(value: string | null | undefined) {
   const raw = String(value ?? '').trim()
   if (!raw) return ''
-
   const match = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
   if (match) return `${match[3]}${match[2].padStart(2, '0')}${match[1].padStart(2, '0')}`
-
   return raw
 }
 
@@ -102,7 +99,6 @@ function buildCustomers(rows: RenewalRow[], customersByDocument: Map<string, Cus
       statusAtual: chooseLatestText(orderedHistory, (row) => row.status_pedido),
       totalRegistros: orderedHistory.length,
       history: orderedHistory,
-      persisted: Boolean(persisted),
     } satisfies RenewalCustomer
   })
 }
@@ -118,9 +114,11 @@ export default function Renovacoes() {
   const [search, setSearch] = useState('')
   const [selectedCustomerKey, setSelectedCustomerKey] = useState('')
   const [draftCustomer, setDraftCustomer] = useState<RenewalCustomer | null>(null)
+  const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const pageSize = 14
 
   useEffect(() => {
     let active = true
@@ -176,6 +174,7 @@ export default function Renovacoes() {
 
         if (error) throw error
         if (!active) return
+
         const renewalRows = (data ?? []) as RenewalRow[]
         setRows(renewalRows)
 
@@ -236,17 +235,31 @@ export default function Renovacoes() {
     )
   }, [customers, search])
 
+  const totalPages = Math.max(1, Math.ceil(filteredCustomers.length / pageSize))
+  const paginatedCustomers = useMemo(
+    () => filteredCustomers.slice((page - 1) * pageSize, page * pageSize),
+    [filteredCustomers, page],
+  )
+
   useEffect(() => {
-    if (!filteredCustomers.length) {
+    setPage(1)
+  }, [search, selectedPeriod])
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
+
+  useEffect(() => {
+    if (!paginatedCustomers.length) {
       setSelectedCustomerKey('')
       return
     }
 
     setSelectedCustomerKey((current) => {
-      if (current && filteredCustomers.some((customer) => customer.documentKey === current)) return current
-      return filteredCustomers[0]?.documentKey || ''
+      if (current && paginatedCustomers.some((customer) => customer.documentKey === current)) return current
+      return paginatedCustomers[0]?.documentKey || ''
     })
-  }, [filteredCustomers])
+  }, [paginatedCustomers])
 
   const selectedCustomer = useMemo(
     () => filteredCustomers.find((customer) => customer.documentKey === selectedCustomerKey) || null,
@@ -364,189 +377,231 @@ export default function Renovacoes() {
           <SummaryCard label="Período ativo" value={selectedPeriod ? formatPeriod(selectedPeriod) : '—'} detail="Pesquisa pronta para retomada comercial." />
         </section>
 
-        <section className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+        <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
           <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-lg font-bold text-slate-900">Clientes da carteira</h3>
-            <p className="mt-1 text-sm text-slate-500">Consolidação dos últimos contatos encontrados em cada cliente.</p>
-            <div className="mt-4 space-y-3">
+            <p className="mt-1 text-sm text-slate-500">Lista corrida com paginação para pesquisa rápida e retomada comercial.</p>
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+              Mostrando {paginatedCustomers.length ? `${(page - 1) * pageSize + 1}-${Math.min(page * pageSize, filteredCustomers.length)}` : '0'} de {filteredCustomers.length} cliente(s)
+            </div>
+
+            <div className="mt-4 overflow-hidden rounded-[24px] border border-slate-200">
               {filteredCustomers.length === 0 ? (
                 <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
                   {loading ? 'Carregando carteira...' : 'Nenhum cliente encontrado para a pesquisa atual.'}
                 </div>
-              ) : filteredCustomers.map((customer) => {
-                const active = customer.documentKey === selectedCustomerKey
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-slate-100">
+                      <tr className="text-left text-slate-500">
+                        <th className="px-4 py-3 font-semibold">Cliente</th>
+                        <th className="px-4 py-3 font-semibold">Contato</th>
+                        <th className="px-4 py-3 font-semibold">Documento</th>
+                        <th className="px-4 py-3 font-semibold">Agente</th>
+                        <th className="px-4 py-3 font-semibold">Vencimento</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedCustomers.map((customer) => {
+                        const active = customer.documentKey === selectedCustomerKey
 
-                return (
-                  <button
-                    key={customer.documentKey}
-                    type="button"
-                    onClick={() => setSelectedCustomerKey(customer.documentKey)}
-                    className={`w-full rounded-2xl border px-4 py-4 text-left transition ${
-                      active
-                        ? 'border-blue-300 bg-blue-50 shadow-sm'
-                        : 'border-slate-200 bg-slate-50 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-slate-900">{customer.nome}</p>
-                        <p className="mt-1 text-sm text-slate-500">{safeText(customer.email)} · {safeText(customer.telefone)}</p>
-                      </div>
-                      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">
-                        {customer.totalRegistros} registro(s)
-                      </span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
-                      <span className="rounded-full bg-white px-3 py-1">{safeText(customer.cpf || customer.cnpj)}</span>
-                      <span className="rounded-full bg-white px-3 py-1">{safeText(customer.agente || customer.participantNome)}</span>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-
-          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-            {!draftCustomer ? (
-              <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
-                {loading ? 'Carregando ficha do cliente...' : 'Selecione um cliente para ver histórico e contato.'}
-              </div>
-            ) : (
-              <div className="space-y-6">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Ficha do cliente</p>
-                    <h3 className="mt-2 text-2xl font-bold text-slate-900">{draftCustomer.nome}</h3>
-                    <p className="mt-2 text-sm text-slate-500">
-                      Último vencimento em {safeText(draftCustomer.ultimoVencimento)} · status atual {safeText(draftCustomer.statusAtual)}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                      {draftCustomer.totalRegistros} ocorrência(s) no período
-                    </div>
-                    <button
-                      type="button"
-                      onClick={saveCustomer}
-                      disabled={saving}
-                      className="inline-flex items-center gap-2 rounded-full bg-[#275ca8] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                    >
-                      <Save size={16} />
-                      {saving ? 'Salvando...' : 'Salvar cadastro'}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid gap-4 xl:grid-cols-2">
-                  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-blue-700">
-                        <UserRound size={18} />
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Contato consolidado</p>
-                        <p className="text-sm text-slate-500">Último contato encontrado na carteira importada</p>
-                      </div>
-                    </div>
-                    <div className="mt-4 grid gap-3 text-sm text-slate-700">
-                      <label className="block">
-                        <span className="mb-2 block font-semibold">E-mail</span>
-                        <input
-                          value={draftCustomer.email ?? ''}
-                          onChange={(event) => setDraftCustomer((current) => current ? { ...current, email: event.target.value } : current)}
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-2 block font-semibold">Telefone</span>
-                        <input
-                          value={draftCustomer.telefone ?? ''}
-                          onChange={(event) => setDraftCustomer((current) => current ? { ...current, telefone: event.target.value } : current)}
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </label>
-                      <div><span className="font-semibold">CPF:</span> {safeText(draftCustomer.cpf)}</div>
-                      <div><span className="font-semibold">CNPJ:</span> {safeText(draftCustomer.cnpj)}</div>
-                      <div><span className="font-semibold">Razão social:</span> {safeText(draftCustomer.razaoSocial)}</div>
-                    </div>
-                  </div>
-
-                  <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-emerald-700">
-                        <Phone size={18} />
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Vínculo comercial</p>
-                        <p className="text-sm text-slate-500">Origem e responsável atuais na base</p>
-                      </div>
-                    </div>
-                    <div className="mt-4 grid gap-3 text-sm text-slate-700">
-                      <div><span className="font-semibold">Parceiro:</span> {safeText(draftCustomer.participantNome)}</div>
-                      <div><span className="font-semibold">Agente:</span> {safeText(draftCustomer.agente)}</div>
-                      <div><span className="font-semibold">AR:</span> {safeText(draftCustomer.ar)}</div>
-                      <div><span className="font-semibold">Ponto de atendimento:</span> {safeText(draftCustomer.pontoAtendimento)}</div>
-                      <label className="block">
-                        <span className="mb-2 block font-semibold">Status de contato</span>
-                        <input
-                          value={draftCustomer.contatoStatus ?? ''}
-                          onChange={(event) => setDraftCustomer((current) => current ? { ...current, contatoStatus: event.target.value } : current)}
-                          placeholder="Ex.: ligar hoje, aguardando retorno, renovado..."
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-2 block font-semibold">Próximo contato</span>
-                        <input
-                          type="date"
-                          value={draftCustomer.proximoContatoEm ?? ''}
-                          onChange={(event) => setDraftCustomer((current) => current ? { ...current, proximoContatoEm: event.target.value } : current)}
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-2 block font-semibold">Observações</span>
-                        <textarea
-                          value={draftCustomer.observacoes ?? ''}
-                          onChange={(event) => setDraftCustomer((current) => current ? { ...current, observacoes: event.target.value } : current)}
-                          rows={4}
-                          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <h4 className="text-lg font-bold text-slate-900">Histórico do cliente</h4>
-                  <p className="mt-1 text-sm text-slate-500">Base das ocorrências importadas para este documento/chave.</p>
-                  <div className="mt-4 overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-200 text-left text-slate-400">
-                          <th className="pb-3 pr-4 font-semibold">Pedido</th>
-                          <th className="pb-3 pr-4 font-semibold">Vencimento</th>
-                          <th className="pb-3 pr-4 font-semibold">Produto</th>
-                          <th className="pb-3 pr-4 font-semibold">Agente</th>
-                          <th className="pb-3 font-semibold">Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {draftCustomer.history.map((row) => (
-                          <tr key={row.id} className="border-b border-slate-100 last:border-0">
-                            <td className="py-3 pr-4 font-medium text-slate-800">{safeText(row.pedido)}</td>
-                            <td className="py-3 pr-4 text-slate-500">{safeText(row.data_vencimento)}</td>
-                            <td className="py-3 pr-4 text-slate-500">{safeText(row.produto)}</td>
-                            <td className="py-3 pr-4 text-slate-500">{safeText(row.agente || row.participant_nome)}</td>
-                            <td className="py-3 font-medium text-slate-700">{safeText(row.status_pedido)}</td>
+                        return (
+                          <tr
+                            key={customer.documentKey}
+                            onClick={() => setSelectedCustomerKey(customer.documentKey)}
+                            className={`cursor-pointer border-t border-slate-200 transition ${
+                              active ? 'bg-blue-50' : 'bg-white hover:bg-slate-50'
+                            }`}
+                          >
+                            <td className="px-4 py-4">
+                              <div className="font-semibold text-slate-900">{customer.nome}</div>
+                              <div className="mt-1 text-xs text-slate-500">{customer.totalRegistros} ocorrência(s)</div>
+                            </td>
+                            <td className="px-4 py-4 text-slate-600">
+                              <div>{safeText(customer.email)}</div>
+                              <div className="mt-1 text-xs text-slate-500">{safeText(customer.telefone)}</div>
+                            </td>
+                            <td className="px-4 py-4 text-slate-600">{safeText(customer.cpf || customer.cnpj)}</td>
+                            <td className="px-4 py-4 text-slate-600">{safeText(customer.agente || customer.participantNome)}</td>
+                            <td className="px-4 py-4 text-slate-600">{safeText(customer.ultimoVencimento)}</td>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
+              )}
+            </div>
+
+            {filteredCustomers.length > 0 && (
+              <div className="mt-4 flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={page === 1}
+                  className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Anterior
+                </button>
+                <div className="text-sm text-slate-500">
+                  Página <span className="font-semibold text-slate-800">{page}</span> de <span className="font-semibold text-slate-800">{totalPages}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                  disabled={page === totalPages}
+                  className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Próxima
+                </button>
               </div>
             )}
+          </div>
+
+          <div className="xl:sticky xl:top-6 xl:self-start">
+            <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+              {!draftCustomer ? (
+                <div className="rounded-[24px] border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+                  {loading ? 'Carregando ficha do cliente...' : 'Selecione um cliente para ver histórico e contato.'}
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">Ficha do cliente</p>
+                      <h3 className="mt-2 text-2xl font-bold text-slate-900">{draftCustomer.nome}</h3>
+                      <p className="mt-2 text-sm text-slate-500">
+                        Último vencimento em {safeText(draftCustomer.ultimoVencimento)} · status atual {safeText(draftCustomer.statusAtual)}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                        {draftCustomer.totalRegistros} ocorrência(s) no período
+                      </div>
+                      <button
+                        type="button"
+                        onClick={saveCustomer}
+                        disabled={saving}
+                        className="inline-flex items-center gap-2 rounded-full bg-[#275ca8] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                      >
+                        <Save size={16} />
+                        {saving ? 'Salvando...' : 'Salvar cadastro'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-blue-700">
+                          <UserRound size={18} />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Contato consolidado</p>
+                          <p className="text-sm text-slate-500">Último contato encontrado na carteira importada</p>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid gap-3 text-sm text-slate-700">
+                        <label className="block">
+                          <span className="mb-2 block font-semibold">E-mail</span>
+                          <input
+                            value={draftCustomer.email ?? ''}
+                            onChange={(event) => setDraftCustomer((current) => current ? { ...current, email: event.target.value } : current)}
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-2 block font-semibold">Telefone</span>
+                          <input
+                            value={draftCustomer.telefone ?? ''}
+                            onChange={(event) => setDraftCustomer((current) => current ? { ...current, telefone: event.target.value } : current)}
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </label>
+                        <div><span className="font-semibold">CPF:</span> {safeText(draftCustomer.cpf)}</div>
+                        <div><span className="font-semibold">CNPJ:</span> {safeText(draftCustomer.cnpj)}</div>
+                        <div><span className="font-semibold">Razão social:</span> {safeText(draftCustomer.razaoSocial)}</div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-emerald-700">
+                          <Phone size={18} />
+                        </div>
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Vínculo comercial</p>
+                          <p className="text-sm text-slate-500">Origem e responsável atuais na base</p>
+                        </div>
+                      </div>
+                      <div className="mt-4 grid gap-3 text-sm text-slate-700">
+                        <div><span className="font-semibold">Parceiro:</span> {safeText(draftCustomer.participantNome)}</div>
+                        <div><span className="font-semibold">Agente:</span> {safeText(draftCustomer.agente)}</div>
+                        <div><span className="font-semibold">AR:</span> {safeText(draftCustomer.ar)}</div>
+                        <div><span className="font-semibold">Ponto de atendimento:</span> {safeText(draftCustomer.pontoAtendimento)}</div>
+                        <label className="block">
+                          <span className="mb-2 block font-semibold">Status de contato</span>
+                          <input
+                            value={draftCustomer.contatoStatus ?? ''}
+                            onChange={(event) => setDraftCustomer((current) => current ? { ...current, contatoStatus: event.target.value } : current)}
+                            placeholder="Ex.: ligar hoje, aguardando retorno, renovado..."
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-2 block font-semibold">Próximo contato</span>
+                          <input
+                            type="date"
+                            value={draftCustomer.proximoContatoEm ?? ''}
+                            onChange={(event) => setDraftCustomer((current) => current ? { ...current, proximoContatoEm: event.target.value } : current)}
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-2 block font-semibold">Observações</span>
+                          <textarea
+                            value={draftCustomer.observacoes ?? ''}
+                            onChange={(event) => setDraftCustomer((current) => current ? { ...current, observacoes: event.target.value } : current)}
+                            rows={4}
+                            className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <h4 className="text-lg font-bold text-slate-900">Histórico do cliente</h4>
+                    <p className="mt-1 text-sm text-slate-500">Base das ocorrências importadas para este documento/chave.</p>
+                    <div className="mt-4 overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-left text-slate-400">
+                            <th className="pb-3 pr-4 font-semibold">Pedido</th>
+                            <th className="pb-3 pr-4 font-semibold">Vencimento</th>
+                            <th className="pb-3 pr-4 font-semibold">Produto</th>
+                            <th className="pb-3 pr-4 font-semibold">Agente</th>
+                            <th className="pb-3 font-semibold">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {draftCustomer.history.map((row) => (
+                            <tr key={row.id} className="border-b border-slate-100 last:border-0">
+                              <td className="py-3 pr-4 font-medium text-slate-800">{safeText(row.pedido)}</td>
+                              <td className="py-3 pr-4 text-slate-500">{safeText(row.data_vencimento)}</td>
+                              <td className="py-3 pr-4 text-slate-500">{safeText(row.produto)}</td>
+                              <td className="py-3 pr-4 text-slate-500">{safeText(row.agente || row.participant_nome)}</td>
+                              <td className="py-3 font-medium text-slate-700">{safeText(row.status_pedido)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </section>
       </div>
