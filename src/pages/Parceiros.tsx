@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Building2, KeyRound, Percent, Plus, Save, Search, ShieldCheck, Upload, UserRound, X } from 'lucide-react'
+import { Building2, KeyRound, Percent, Plus, Save, Search, ShieldCheck, Trash2, Upload, UserRound, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatPercent, formatPeriod, money, normalizePercent, safeText, toNumber } from '@/lib/certifast'
 import { parseCurrency, parsePartnersSpreadsheet, readSpreadsheet } from '@/lib/imports'
@@ -46,8 +46,12 @@ type ParticipantCardProps = {
   onChange: (id: string, field: keyof Participant, value: string | boolean) => void
   onSave: (participant: EditableParticipant) => void
   onSendReset: (participant: EditableParticipant, targetEmail: string | null) => void
+  onDelete: (id: string) => void
+  confirmDeleteId: string | null
+  setConfirmDeleteId: (id: string | null) => void
   saving: boolean
   resetting: boolean
+  deleting: boolean
 }
 
 function emptyMetrics(): ParticipantMetrics {
@@ -173,8 +177,12 @@ function ParticipantCard({
   onChange,
   onSave,
   onSendReset,
+  onDelete,
+  confirmDeleteId,
+  setConfirmDeleteId,
   saving,
   resetting,
+  deleting,
 }: ParticipantCardProps) {
   const mainAccessEmail = accessRows[0]?.email || participant.email || null
 
@@ -200,6 +208,25 @@ function ParticipantCard({
             <Save size={14} />
             {saving ? 'Salvando...' : 'Salvar'}
           </button>
+
+          {confirmDeleteId === participant.id ? (
+            <div className="inline-flex items-center gap-2 rounded-full border border-red-300 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+              <span>Confirmar exclusão?</span>
+              <button type="button" disabled={deleting} onClick={() => onDelete(participant.id)} className="underline disabled:opacity-50">
+                {deleting ? 'Excluindo...' : 'Sim'}
+              </button>
+              <button type="button" onClick={() => setConfirmDeleteId(null)} className="underline">Não</button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmDeleteId(participant.id)}
+              className="inline-flex items-center gap-2 rounded-full border border-red-200 px-4 py-2 text-xs font-semibold text-red-600 hover:bg-red-50"
+            >
+              <Trash2 size={14} />
+              Excluir
+            </button>
+          )}
         </div>
       </div>
 
@@ -591,6 +618,8 @@ export default function Parceiros() {
   const [newCodrev, setNewCodrev] = useState('')
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -874,6 +903,22 @@ export default function Parceiros() {
     }
   }
 
+  async function deleteParticipant(id: string) {
+    setDeletingId(id)
+    setMessage(null)
+    try {
+      const { error } = await supabase.from('crm_participants').delete().eq('id', id)
+      if (error) throw error
+      setParticipants((c) => c.filter((p) => p.id !== id))
+      setConfirmDeleteId(null)
+      setMessage({ type: 'ok', text: 'Parceiro excluído.' })
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Não foi possível excluir o parceiro.' })
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   async function createParticipant() {
     const nome = newNome.trim()
     if (!nome) return
@@ -1043,8 +1088,12 @@ export default function Parceiros() {
                 onChange={updateParticipant}
                 onSave={saveParticipant}
                 onSendReset={sendReset}
+                onDelete={deleteParticipant}
+                confirmDeleteId={confirmDeleteId}
+                setConfirmDeleteId={setConfirmDeleteId}
                 saving={savingId === participant.id}
                 resetting={resettingId === participant.id}
+                deleting={deletingId === participant.id}
               />
             ))
           )}
