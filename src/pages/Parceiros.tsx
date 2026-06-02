@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Building2, KeyRound, Percent, Save, Search, ShieldCheck, UserRound } from 'lucide-react'
+import { Building2, KeyRound, Percent, Plus, Save, Search, ShieldCheck, UserRound, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatPercent, formatPeriod, money, normalizePercent, safeText, toNumber } from '@/lib/certifast'
 import { parseCurrency } from '@/lib/imports'
@@ -586,6 +586,10 @@ export default function Parceiros() {
   const [resettingId, setResettingId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [message, setMessage] = useState<{ type: 'ok' | 'error'; text: string } | null>(null)
+  const [showNew, setShowNew] = useState(false)
+  const [newNome, setNewNome] = useState('')
+  const [newCodrev, setNewCodrev] = useState('')
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -819,6 +823,33 @@ export default function Parceiros() {
     }
   }
 
+  async function createParticipant() {
+    const nome = newNome.trim()
+    if (!nome) return
+    setCreating(true)
+    setMessage(null)
+    const slug = nome
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    try {
+      const { data, error } = await supabase
+        .from('crm_participants')
+        .insert({ nome, slug: `${slug}-${Date.now()}`, codigo_revenda: newCodrev.trim() || null })
+        .select()
+        .single()
+      if (error) throw error
+      setParticipants((current) => [...current, { ...(data as Participant), dirty: false }])
+      setNewNome('')
+      setNewCodrev('')
+      setShowNew(false)
+      setMessage({ type: 'ok', text: `Parceiro "${nome}" criado com sucesso.` })
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Não foi possível criar o parceiro.' })
+    } finally {
+      setCreating(false)
+    }
+  }
+
   if (!isAdmin) {
     return (
       <div className="p-6">
@@ -843,33 +874,73 @@ export default function Parceiros() {
               </p>
             </div>
 
-            <div className="grid w-full gap-4 lg:max-w-2xl lg:grid-cols-[1fr,220px]">
-              <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Buscar parceiro</label>
-                <div className="relative">
-                  <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Nome, vendedor, validador, codrev..."
-                    className="w-full rounded-2xl border border-slate-200 py-3 pl-11 pr-4 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+            <div className="flex w-full flex-col gap-4 lg:max-w-3xl">
+              <div className="grid gap-4 lg:grid-cols-[1fr,220px]">
+                <div>
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Buscar parceiro</label>
+                  <div className="relative">
+                    <Search size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder="Nome, vendedor, validador, codrev..."
+                      className="w-full rounded-2xl border border-slate-200 py-3 pl-11 pr-4 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Período do relatório</label>
+                  <select
+                    value={selectedPeriod}
+                    onChange={(event) => setSelectedPeriod(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {periods.length === 0 && <option value="">Sem períodos importados</option>}
+                    {periods.map((period) => (
+                      <option key={period} value={period}>{formatPeriod(period)}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
-              <div>
-                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Período do relatório</label>
-                <select
-                  value={selectedPeriod}
-                  onChange={(event) => setSelectedPeriod(event.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  {periods.length === 0 && <option value="">Sem períodos importados</option>}
-                  {periods.map((period) => (
-                    <option key={period} value={period}>{formatPeriod(period)}</option>
-                  ))}
-                </select>
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowNew((v) => !v)}
+                className="inline-flex items-center gap-2 self-start rounded-full bg-[#275ca8] px-5 py-3 text-sm font-semibold text-white"
+              >
+                {showNew ? <X size={16} /> : <Plus size={16} />}
+                {showNew ? 'Cancelar' : 'Novo parceiro'}
+              </button>
+
+              {showNew && (
+                <div className="rounded-[20px] border border-blue-200 bg-blue-50 p-5">
+                  <p className="mb-4 text-sm font-semibold text-slate-700">Novo parceiro — preencha o nome e o código de revenda (opcional). Os demais dados podem ser editados depois.</p>
+                  <div className="grid gap-4 sm:grid-cols-[1fr,200px,auto]">
+                    <input
+                      value={newNome}
+                      onChange={(e) => setNewNome(e.target.value)}
+                      placeholder="Nome do parceiro *"
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <input
+                      value={newCodrev}
+                      onChange={(e) => setNewCodrev(e.target.value)}
+                      placeholder="Código de revenda"
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      type="button"
+                      disabled={creating || !newNome.trim()}
+                      onClick={createParticipant}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-[#275ca8] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+                    >
+                      <Save size={14} />
+                      {creating ? 'Criando...' : 'Criar'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </section>
