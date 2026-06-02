@@ -364,3 +364,68 @@ export function groupRowsByPeriod(rows: ParsedRow[], type: ImportType, fallbackP
 
   return groups
 }
+
+export type PartnerImportRow = {
+  nome: string
+  slug: string
+  nome_vendedor: string
+  nome_validador: string | null
+  fantasia: string | null
+  faixa: string | null
+  percentual_venda: number
+  percentual_software: number
+  percentual_hardware: number
+  razao_social: string | null
+  email: string | null
+  codigo_revenda: string | null
+  imposto: number
+  contabilidade: number
+  verificacao: number
+}
+
+function slugify(text: string): string {
+  return text
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
+function col(row: Record<string, unknown>, ...keys: string[]): string {
+  for (const k of keys) {
+    const v = String(row[k] ?? '').trim()
+    if (v) return v
+  }
+  return ''
+}
+
+export function parsePartnersSpreadsheet(rows: ParsedRow[]): PartnerImportRow[] {
+  const results: PartnerImportRow[] = []
+
+  for (const row of rows) {
+    const nomeVendedor = col(row, 'Nome Vendedor', 'NOME VENDEDOR', 'nome_vendedor')
+    if (!nomeVendedor) continue
+
+    const codrev = col(row, 'CODREV', 'Codrev', 'codigo_revenda', 'COD. REVENDA')
+    const nomeBase = nomeVendedor.replace(/^\d+#/, '').trim()
+    const slug = `${slugify(nomeBase)}-${codrev || Date.now()}`
+
+    results.push({
+      nome: nomeBase,
+      slug,
+      nome_vendedor: nomeVendedor,
+      nome_validador: col(row, 'Nome Validador', 'NOME VALIDADOR') || null,
+      fantasia: col(row, 'FANTASIA', 'Fantasia') || null,
+      faixa: col(row, 'COMISSAO', 'Comissão', 'COMISSÃO', 'Faixa', 'FAIXA') || null,
+      percentual_venda: parseCurrency(col(row, '% Venda', 'PERC VENDA', '% VENDA')),
+      percentual_software: parseCurrency(col(row, '% Software', 'PERC SOFTWARE', '% SOFTWARE', '% Certificado')),
+      percentual_hardware: parseCurrency(col(row, '% Hardware', 'PERC HARDWARE', '% HARDWARE')),
+      razao_social: col(row, 'RAZAO SOCIAL', 'Razão Social', 'RAZÃO SOCIAL') || null,
+      email: col(row, 'E-MAIL', 'EMAIL', 'E-mail') || null,
+      codigo_revenda: codrev || null,
+      imposto: parseCurrency(col(row, 'Imposto', 'IMPOSTO', '% Imposto')),
+      contabilidade: parseCurrency(col(row, 'Contabilidade', 'CONTABILIDADE')),
+      verificacao: parseCurrency(col(row, 'Verificação', 'Verificacao', 'VERIFICAÇÃO')),
+    })
+  }
+
+  return results
+}

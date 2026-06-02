@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Building2, KeyRound, Percent, Plus, Save, Search, ShieldCheck, UserRound, X } from 'lucide-react'
+import { Building2, KeyRound, Percent, Plus, Save, Search, ShieldCheck, Upload, UserRound, X } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import { formatPercent, formatPeriod, money, normalizePercent, safeText, toNumber } from '@/lib/certifast'
-import { parseCurrency } from '@/lib/imports'
+import { parseCurrency, parsePartnersSpreadsheet, readSpreadsheet } from '@/lib/imports'
 import { supabase } from '@/lib/supabase'
 import type { Participant, SalesRow, ValidationRow } from '@/types'
 
@@ -590,6 +590,7 @@ export default function Parceiros() {
   const [newNome, setNewNome] = useState('')
   const [newCodrev, setNewCodrev] = useState('')
   const [creating, setCreating] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -823,6 +824,56 @@ export default function Parceiros() {
     }
   }
 
+  async function importPartnersFile(file: File) {
+    setImporting(true)
+    setMessage(null)
+    try {
+      const allRows = await readSpreadsheet(file)
+      const parsed = parsePartnersSpreadsheet(allRows)
+      if (parsed.length === 0) {
+        setMessage({ type: 'error', text: 'Nenhum parceiro encontrado na planilha. Verifique se o arquivo tem a coluna "Nome Vendedor".' })
+        return
+      }
+      let created = 0
+      let updated = 0
+      for (const row of parsed) {
+        const existing = participants.find((p) => p.codigo_revenda === row.codigo_revenda && row.codigo_revenda)
+        if (existing) {
+          const { error } = await supabase.from('crm_participants').update({
+            nome_vendedor: row.nome_vendedor,
+            nome_validador: row.nome_validador,
+            fantasia: row.fantasia,
+            faixa: row.faixa,
+            percentual_venda: row.percentual_venda,
+            percentual_software: row.percentual_software,
+            percentual_hardware: row.percentual_hardware,
+            razao_social: row.razao_social,
+            email: row.email,
+            imposto: row.imposto,
+            contabilidade: row.contabilidade,
+            verificacao: row.verificacao,
+          }).eq('id', existing.id)
+          if (!error) updated++
+        } else {
+          const { data, error } = await supabase.from('crm_participants').insert(row).select().single()
+          if (!error && data) {
+            setParticipants((c) => [...c, { ...(data as Participant), dirty: false }])
+            created++
+          }
+        }
+      }
+      if (updated > 0) {
+        const { data } = await supabase.from('crm_participants').select('*').order('nome')
+        if (data) setParticipants((data as Participant[]).map((p) => ({ ...p, dirty: false })))
+      }
+      setMessage({ type: 'ok', text: `Importação concluída: ${created} criado(s), ${updated} atualizado(s).` })
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Erro ao importar planilha.' })
+    } finally {
+      setImporting(false)
+    }
+  }
+
   async function createParticipant() {
     const nome = newNome.trim()
     if (!nome) return
@@ -904,14 +955,28 @@ export default function Parceiros() {
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setShowNew((v) => !v)}
-                className="inline-flex items-center gap-2 self-start rounded-full bg-[#275ca8] px-5 py-3 text-sm font-semibold text-white"
-              >
-                {showNew ? <X size={16} /> : <Plus size={16} />}
-                {showNew ? 'Cancelar' : 'Novo parceiro'}
-              </button>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowNew((v) => !v)}
+                  className="inline-flex items-center gap-2 rounded-full bg-[#275ca8] px-5 py-3 text-sm font-semibold text-white"
+                >
+                  {showNew ? <X size={16} /> : <Plus size={16} />}
+                  {showNew ? 'Cancelar' : 'Novo parceiro'}
+                </button>
+
+                <label className={`inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 ${importing ? 'pointer-events-none opacity-50' : ''}`}>
+                  <Upload size={16} />
+                  {importing ? 'Importando...' : 'Importar planilha'}
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="hidden"
+                    disabled={importing}
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) { void importPartnersFile(f); e.target.value = '' } }}
+                  />
+                </label>
+              </div>
 
               {showNew && (
                 <div className="rounded-[20px] border border-blue-200 bg-blue-50 p-5">
