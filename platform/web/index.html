@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>crm_certifast profissional</title>
+    <style>
+      :root {
+        --blue-900: #183d79;
+        --blue-700: #275ca8;
+        --orange-500: #ff7a00;
+        --ink: #17304f;
+        --bg: #edf4ff;
+        --panel: #ffffff;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", sans-serif;
+        background: linear-gradient(135deg, #f7fbff, var(--bg));
+        color: var(--ink);
+      }
+
+      .shell {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 32px;
+      }
+
+      .layout {
+        width: min(1100px, 100%);
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 24px;
+      }
+
+      .hero,
+      .card {
+        background: var(--panel);
+        border-radius: 28px;
+        box-shadow: 0 24px 80px rgba(27, 55, 97, 0.12);
+        padding: 32px;
+      }
+
+      .hero {
+        background: linear-gradient(155deg, var(--blue-900), var(--blue-700));
+        color: white;
+      }
+
+      .eyebrow {
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        opacity: 0.78;
+      }
+
+      h1 {
+        margin: 18px 0 12px;
+        font-size: clamp(38px, 4vw, 62px);
+        line-height: 0.98;
+      }
+
+      p {
+        margin: 0;
+        line-height: 1.6;
+      }
+
+      ul {
+        margin: 24px 0 0;
+        padding-left: 18px;
+      }
+
+      li + li {
+        margin-top: 8px;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 10px 14px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.16);
+        margin-top: 24px;
+      }
+
+      .card h2 {
+        margin: 10px 0 12px;
+        color: var(--blue-900);
+      }
+
+      .stack {
+        display: grid;
+        gap: 18px;
+      }
+
+      .cta {
+        display: inline-block;
+        margin-top: 10px;
+        padding: 14px 18px;
+        border-radius: 14px;
+        background: var(--orange-500);
+        color: white;
+        text-decoration: none;
+        font-weight: 700;
+      }
+
+      @media (max-width: 900px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="layout">
+        <article class="hero">
+          <div class="eyebrow">crm_certifast profissional</div>
+          <h1>Nova base com backend real</h1>
+          <p>Esta estrutura substitui a dependência do navegador por uma aplicação com API, banco e storage próprios. É a fundação certa para comissão, renovação e acesso por parceiro.</p>
+          <div class="pill">Docker + PostgreSQL + MinIO + API própria</div>
+        </article>
+        <article class="card stack">
+          <div class="eyebrow" style="color:#5b7394;">fase atual</div>
+          <h2>Fundação criada</h2>
+          <p>O frontend definitivo e o backend de autenticação ainda serão migrados em cima desta base nova.</p>
+          <ul>
+            <li>API dedicada para auth, parceiros, importações e relatórios</li>
+            <li>Banco PostgreSQL isolado para o CRM</li>
+            <li>Storage privado para planilhas e anexos</li>
+            <li>Infra pronta para rodar em VPS com Docker</li>
+          </ul>
+          <a class="cta" href="/api-status">Próxima etapa: autenticação server-side</a>
+        </article>
+      </section>
+    </main>
+  </body>
+  </html>

@@ -1,0 +1,44 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --background: 215 100% 98%;
+    --foreground: 216 53% 17%;
+    --card: 0 0% 100%;
+    --card-foreground: 216 53% 17%;
+    --border: 214 32% 91%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --primary: 218 67% 39%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 24 100% 50%;
+  }
+
+  .dark {
+    --background: 222 47% 7%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 11%;
+    --card-foreground: 210 40% 98%;
+    --border: 217 33% 18%;
+    --muted: 217 33% 18%;
+    --muted-foreground: 215 20% 65%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 24 100% 50%;
+  }
+}
+
+html, body, #root {
+  min-height: 100%;
+}
+
+body {
+  font-family: "Segoe UI", system-ui, sans-serif;
+  background: #eef4ff;
+  color: #17304f;
+}
+
+* {
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}

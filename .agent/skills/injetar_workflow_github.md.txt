@@ -1,0 +1,8 @@
+---
+name: injetar_workflow_github
+description: Executa a criação do arquivo de pipeline do GitHub Actions para garantir que toda alteração de código passe por análise estática (CodeQL) contra vulnerabilidades.
+---
+
+### Como Executar
+O agente deve chamar o script local para gerar a automação de CI/CD:
+`bash .agents/skills/injetar_workflow_github.sh`

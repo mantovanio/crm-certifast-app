@@ -1,0 +1,6 @@
+---
+name: ler_schema_supabase
+description: Permite ao agente ler a estrutura atual de tabelas do Supabase para evitar erros de TypeScript ao gerar consultas.
+---
+
+Para executar essa ação, o agente deve rodar de forma isolada o comando da CLI do Supabase local para extrair os tipos de tipagem estática:

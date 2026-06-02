@@ -1,0 +1,11 @@
+---
+name: sincronizar_tipos_supabase
+description: Use esta ferramenta sempre que o esquema do banco de dados (tabelas, colunas ou funções) for alterado, ou antes de começar a escrever um novo código TypeScript que consulte o Supabase.
+---
+
+### Como Executar
+O agente deve chamar o script local para atualizar o arquivo de definição de tipos TypeScript:
+`bash .agents/skills/sync_supabase.sh`
+
+### Instrução Pós-Execução
+Após rodar este comando, leia imediatamente o arquivo gerado em `src/types/supabase.ts` para atualizar seu contexto com os nomes exatos de tabelas e colunas.

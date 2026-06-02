@@ -1,0 +1,6 @@
+---
+name executar_analise_seguranca
+description Executa um script customizado local para varredura de vulnerabilidades antes de commitar.
+---
+
+Para usar esta skill, execute o script de verificação no ambiente sandbox.

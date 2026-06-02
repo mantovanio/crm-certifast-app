@@ -1,0 +1,6 @@
+#!/bin/bash
+# Cria a pasta de tipos se ela não existir
+mkdir -p src/types
+# Gera os tipos automáticos baseados no seu banco Supabase
+npx supabase gen types typescript --local > src/types/supabase.ts
+echo "Tipos do Supabase sincronizados com sucesso para o Gemini!"

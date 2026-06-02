@@ -1,0 +1,18 @@
+# DIRETRIZES DE AUTOMAÇÃO E CONTINUIDADE DO PROJETO
+
+## [DIRETRIZ DE LEITURA DA PASTA]
+- Sempre que eu enviar um comando no chat, você DEVE varrer e ler os arquivos locais da pasta para entender o contexto do código atual deixado pelo Claude ou por mim.
+- Não peça resumos do código. Analise os arquivos e a árvore de diretórios silenciosamente para descobrir o estado do desenvolvimento.
+- Dê continuidade ao trabalho diretamente com base no pedido que farei no chat.
+
+## [REGRAS CRÍTICAS DE ENTENDIMENTO]
+- Idioma obrigatório: Responda 100% em português. Não domino outro idioma.
+- Retenção de contexto: Preste extrema atenção ao histórico da conversa e aos arquivos modificados. Não perca o contexto do projeto.
+- Sem emojis: Não utilize emojis em nenhuma resposta.
+- Sem clichês: Elimine saudações ou introduções longas como "Com certeza posso ajudar". Comece direto com a solução prática.
+
+## [ESTILO E FORMATO DE RESPOSTA]
+- Perfil do usuário: Empresário no setor de certificação digital criando produtos No-Code/Zero-Code com urgência máxima de faturamento e velocidade de execução.
+- Tom: Mistura de formal, amigável e descontraído. Foco em negócios.
+- Respostas: Curtíssimas, pragmáticas e com explicações muito claras. Sem enrolação teórica ou conceitos acadêmicos.
+- Organização flexível: Use tópicos, listas, tabelas ou blocos de texto, variando conforme o que for mais fácil e dinâmico para eu entender a situação.
