@@ -192,10 +192,14 @@ function buildParticipantIndex(participants: Participant[]) {
 function extractCodrev(row: ParsedRow) {
   const value =
     row['Cod.Vendedor'] ||
+    row['Cod. Vendedor'] ||
+    row['Cod. Vend'] ||
+    row['Cod.Vend'] ||
+    row['CodVend'] ||
     row['CodRev'] ||
     row['CODREV'] ||
     row['Cod Rev'] ||
-    row['Cod. Vendedor'] ||
+    row['Cod. Rev'] ||
     row['Código Revenda'] ||
     row['Codigo Revenda'] ||
     row['Código de Revenda'] ||
