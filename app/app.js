@@ -56,9 +56,17 @@ const state = {
   partnerPage: 1,
   userSearch: "",
   userRoleFilter: "__all__",
+  appointments: [],
+  appointmentSearch: "",
+  appointmentStatusFilter: "__all__",
+  appointmentFormOpen: false,
+  appointmentDocuments: {},
+  appointmentPage: 1,
 };
 
 const PARTNER_PAGE_SIZE = 12;
+const APPOINTMENT_PAGE_SIZE = 10;
+const DOCS_BUCKET = "crm-certifast-docs";
 
 const MONTH_MAP = {
   jan: "01",
@@ -166,6 +174,9 @@ function resetAppSessionState() {
   state.participantLinks = [];
   state.report = null;
   state.renewal = null;
+  state.appointments = [];
+  state.appointmentDocuments = {};
+  state.appointmentFormOpen = false;
 }
 
 async function authenticateWithPassword(email, password) {
@@ -971,6 +982,9 @@ async function signOut() {
   state.profiles = [];
   state.files = [];
   state.participantLinks = [];
+  state.appointments = [];
+  state.appointmentDocuments = {};
+  state.appointmentFormOpen = false;
   render();
 }
 
@@ -2005,8 +2019,688 @@ async function saveBatchParticipantConfig() {
   setMessage("ok", `Configuração em lote aplicada a ${targets.length} parceiro(s).`);
 }
 
+// ===== AGENDAMENTOS =====
+
+function setAppointmentSearch(value) {
+  state.appointmentSearch = String(value || "");
+  state.appointmentPage = 1;
+  render();
+}
+
+function setAppointmentStatusFilter(value) {
+  state.appointmentStatusFilter = String(value || "__all__");
+  state.appointmentPage = 1;
+  render();
+}
+
+function setAppointmentPage(page) {
+  state.appointmentPage = Math.max(1, Number(page || 1));
+  render();
+}
+
+function toggleAppointmentForm() {
+  state.appointmentFormOpen = !state.appointmentFormOpen;
+  render();
+}
+
+function parseAppointmentEmail(text) {
+  const result = {
+    client_name: "",
+    cpf_cnpj: "",
+    phone: "",
+    mobile: "",
+    email_cliente: "",
+    pedido: "",
+    codigo: "",
+    produto: "",
+    posto: "",
+    scheduled_date: "",
+    scheduled_time: "",
+  };
+
+  const fieldMap = [
+    ["Cliente:", "client_name"],
+    ["CPF/CNPJ:", "cpf_cnpj"],
+    ["Telefone Celular:", "mobile"],
+    ["Telefone:", "phone"],
+    ["Email:", "email_cliente"],
+    ["Pedido:", "pedido"],
+    ["Código:", "codigo"],
+    ["Produto:", "produto"],
+    ["Posto:", "posto"],
+    ["Data:", "scheduled_date"],
+    ["Hora:", "scheduled_time"],
+  ];
+
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    for (const [prefix, key] of fieldMap) {
+      if (trimmed.toLowerCase().startsWith(prefix.toLowerCase())) {
+        result[key] = trimmed.slice(prefix.length).trim();
+        break;
+      }
+    }
+  }
+
+  if (result.scheduled_date) {
+    const m = result.scheduled_date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) result.scheduled_date = `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  }
+
+  if (result.scheduled_time) {
+    result.scheduled_time = result.scheduled_time.replace(/h$/i, "").trim();
+    if (/^\d{1,2}$/.test(result.scheduled_time)) result.scheduled_time = `${result.scheduled_time.padStart(2, "0")}:00`;
+  }
+
+  return result;
+}
+
+function parseAndFillAppointmentForm() {
+  const textarea = $("appt-email-paste");
+  if (!textarea) return;
+  const text = textarea.value;
+  if (!text.trim()) {
+    setMessage("error", "Cole o texto do e-mail de agendamento antes de analisar.");
+    return;
+  }
+
+  const parsed = parseAppointmentEmail(text);
+  const fieldIds = {
+    client_name: "appt-client-name",
+    cpf_cnpj: "appt-cpf-cnpj",
+    phone: "appt-phone",
+    mobile: "appt-mobile",
+    email_cliente: "appt-email",
+    pedido: "appt-pedido",
+    codigo: "appt-codigo",
+    produto: "appt-produto",
+    posto: "appt-posto",
+    scheduled_date: "appt-date",
+    scheduled_time: "appt-time",
+  };
+
+  for (const [key, inputId] of Object.entries(fieldIds)) {
+    const el = $(inputId);
+    if (el && parsed[key]) el.value = parsed[key];
+  }
+
+  if (parsed.posto) {
+    const participantIndex = createParticipantIndex();
+    const postoNorm = normalizeText(parsed.posto);
+    let found = null;
+    for (const participant of participantIndex.all) {
+      const fields = [participant.nome, participant.fantasia, participant.nome_vendedor, participant.nome_validador]
+        .filter(Boolean).map(normalizeText);
+      if (fields.some((f) => postoNorm.includes(f) || f.includes(postoNorm))) {
+        found = participant;
+        break;
+      }
+    }
+    const select = $("appt-participant");
+    if (select && found) select.value = found.id;
+  }
+
+  clearMessage();
+  setMessage("info", "Campos preenchidos automaticamente. Revise e salve.");
+}
+
+async function loadAppointments() {
+  if (!db) {
+    setMessage("error", "Supabase não disponível no navegador.");
+    return;
+  }
+
+  setLoading(true);
+  clearMessage();
+
+  try {
+    let query = db.from("crm_appointments").select("*")
+      .order("scheduled_date", { ascending: false })
+      .order("created_at", { ascending: false });
+
+    if (!isAdmin() && state.myParticipantIds.length) {
+      query = query.in("participant_id", state.myParticipantIds);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+    state.appointments = data || [];
+  } catch (error) {
+    setMessage("error", error.message || "Erro ao carregar agendamentos.");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function saveAppointmentFromForm() {
+  if (!db) {
+    setMessage("error", "Supabase não disponível no navegador.");
+    return;
+  }
+
+  const clientName = String($("appt-client-name")?.value || "").trim();
+  if (!clientName) {
+    setMessage("error", "O nome do cliente é obrigatório.");
+    return;
+  }
+
+  const participantId = String($("appt-participant")?.value || "").trim() || null;
+  const participant = participantId ? state.participants.find((p) => p.id === participantId) : null;
+
+  const payload = {
+    participant_id: participantId || null,
+    participant_nome: participant?.nome || null,
+    client_name: clientName,
+    cpf_cnpj: String($("appt-cpf-cnpj")?.value || "").trim() || null,
+    phone: String($("appt-phone")?.value || "").trim() || null,
+    mobile: String($("appt-mobile")?.value || "").trim() || null,
+    email_cliente: String($("appt-email")?.value || "").trim() || null,
+    pedido: String($("appt-pedido")?.value || "").trim() || null,
+    codigo: String($("appt-codigo")?.value || "").trim() || null,
+    produto: String($("appt-produto")?.value || "").trim() || null,
+    posto: String($("appt-posto")?.value || "").trim() || null,
+    scheduled_date: String($("appt-date")?.value || "").trim() || null,
+    scheduled_time: String($("appt-time")?.value || "").trim() || null,
+    status: "agendado",
+    notes: String($("appt-notes-new")?.value || "").trim() || null,
+    imported_by: state.session.user.id,
+  };
+
+  setLoading(true);
+  clearMessage();
+
+  try {
+    const { error } = await db.from("crm_appointments").insert(payload);
+    if (error) throw error;
+    state.appointmentFormOpen = false;
+    await loadAppointments();
+    setMessage("ok", "Agendamento registrado com sucesso.");
+  } catch (error) {
+    setMessage("error", error.message || "Erro ao salvar agendamento.");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function updateAppointmentFromForm(id) {
+  if (!db) {
+    setMessage("error", "Supabase não disponível no navegador.");
+    return;
+  }
+
+  const status = $(`appt-status-${id}`)?.value || "agendado";
+  const notes = String($(`appt-notes-${id}`)?.value || "").trim() || null;
+
+  setLoading(true);
+  clearMessage();
+  try {
+    const { error } = await db.from("crm_appointments").update({ status, notes }).eq("id", id);
+    if (error) throw error;
+    const appt = state.appointments.find((a) => a.id === id);
+    if (appt) { appt.status = status; appt.notes = notes; }
+    render();
+    setMessage("ok", "Agendamento atualizado.");
+  } catch (error) {
+    setMessage("error", error.message || "Erro ao atualizar agendamento.");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function deleteAppointment(id) {
+  if (!db) return;
+  await ensureAdmin();
+
+  setLoading(true);
+  clearMessage();
+  try {
+    const docs = state.appointmentDocuments[id] || [];
+    if (docs.length) {
+      await db.storage.from(DOCS_BUCKET).remove(docs.map((d) => d.storage_path));
+    }
+    const { error } = await db.from("crm_appointments").delete().eq("id", id);
+    if (error) throw error;
+    state.appointments = state.appointments.filter((a) => a.id !== id);
+    delete state.appointmentDocuments[id];
+    render();
+    setMessage("ok", "Agendamento excluído.");
+  } catch (error) {
+    setMessage("error", error.message || "Erro ao excluir agendamento.");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function loadDocumentsForAppointment(appointmentId) {
+  if (!db) return;
+  try {
+    const { data, error } = await db
+      .from("crm_appointment_documents")
+      .select("*")
+      .eq("appointment_id", appointmentId)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    state.appointmentDocuments[appointmentId] = data || [];
+    render();
+  } catch (error) {
+    setMessage("error", error.message || "Erro ao carregar documentos.");
+  }
+}
+
+async function uploadDocumentToAppointment(appointmentId) {
+  if (!db) return;
+
+  const input = $(`appt-doc-upload-${appointmentId}`);
+  const files = Array.from(input?.files || []);
+  if (!files.length) {
+    setMessage("error", "Selecione ao menos um arquivo para enviar.");
+    return;
+  }
+
+  setLoading(true);
+  clearMessage();
+  try {
+    for (const file of files) {
+      if (file.size > 20 * 1024 * 1024) throw new Error(`Arquivo ${file.name} excede 20 MB.`);
+      const storagePath = `appointments/${appointmentId}/${Date.now()}-${file.name}`;
+      const { error: uploadError } = await db.storage.from(DOCS_BUCKET).upload(storagePath, file, { upsert: false });
+      if (uploadError) throw uploadError;
+      const { error: dbError } = await db.from("crm_appointment_documents").insert({
+        appointment_id: appointmentId,
+        file_name: file.name,
+        storage_path: storagePath,
+        file_size_bytes: file.size,
+        uploaded_by: state.session.user.id,
+      });
+      if (dbError) throw dbError;
+    }
+    await loadDocumentsForAppointment(appointmentId);
+    setMessage("ok", `${files.length} documento(s) enviado(s) com sucesso.`);
+  } catch (error) {
+    setMessage("error", error.message || "Erro ao enviar documento.");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function downloadDocument(storagePath, fileName) {
+  if (!db) return;
+  try {
+    const { data, error } = await db.storage.from(DOCS_BUCKET).createSignedUrl(storagePath, 300);
+    if (error) throw error;
+    const a = document.createElement("a");
+    a.href = data.signedUrl;
+    a.download = fileName;
+    a.target = "_blank";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } catch (error) {
+    setMessage("error", error.message || "Erro ao baixar documento.");
+  }
+}
+
+async function deleteDocument(docId, storagePath, appointmentId) {
+  if (!db) return;
+
+  setLoading(true);
+  clearMessage();
+  try {
+    await db.storage.from(DOCS_BUCKET).remove([storagePath]);
+    const { error } = await db.from("crm_appointment_documents").delete().eq("id", docId);
+    if (error) throw error;
+    if (state.appointmentDocuments[appointmentId]) {
+      state.appointmentDocuments[appointmentId] = state.appointmentDocuments[appointmentId].filter((d) => d.id !== docId);
+    }
+    render();
+    setMessage("ok", "Documento excluído.");
+  } catch (error) {
+    setMessage("error", error.message || "Erro ao excluir documento.");
+  } finally {
+    setLoading(false);
+  }
+}
+
+function filteredAppointments() {
+  const search = normalizeText(state.appointmentSearch || "");
+  const statusFilter = state.appointmentStatusFilter || "__all__";
+
+  return state.appointments.filter((appt) => {
+    if (statusFilter !== "__all__" && appt.status !== statusFilter) return false;
+    if (!search) return true;
+    const haystack = [appt.client_name, appt.cpf_cnpj, appt.pedido, appt.codigo, appt.produto, appt.posto, appt.email_cliente, appt.phone, appt.participant_nome]
+      .filter(Boolean).map(normalizeText).join(" ");
+    return haystack.includes(search);
+  });
+}
+
+function paginatedAppointments() {
+  const items = filteredAppointments();
+  const totalPages = Math.max(1, Math.ceil(items.length / APPOINTMENT_PAGE_SIZE));
+  const currentPage = Math.min(state.appointmentPage, totalPages);
+  const start = (currentPage - 1) * APPOINTMENT_PAGE_SIZE;
+  const end = start + APPOINTMENT_PAGE_SIZE;
+  if (currentPage !== state.appointmentPage) state.appointmentPage = currentPage;
+  return {
+    items: items.slice(start, end),
+    total: items.length,
+    currentPage,
+    totalPages,
+    start: items.length ? start + 1 : 0,
+    end: Math.min(end, items.length),
+  };
+}
+
+function appointmentStatusBadge(status) {
+  const map = {
+    agendado: ["Agendado", "badge-agendado"],
+    realizado: ["Realizado", "badge-realizado"],
+    nao_atendeu: ["Não atendeu", "badge-nao-atendeu"],
+    cancelado: ["Cancelado", "badge-cancelado"],
+    reagendado: ["Reagendado", "badge-reagendado"],
+  };
+  const [label, cls] = map[status] || [escapeHtml(status || "-"), ""];
+  return `<span class="appt-badge ${cls}">${label}</span>`;
+}
+
+function formatAppointmentDate(date, time) {
+  if (!date) return "-";
+  const parts = String(date).split("-");
+  if (parts.length !== 3) return date;
+  const formatted = `${parts[2]}/${parts[1]}/${parts[0]}`;
+  return time ? `${formatted} às ${time}` : formatted;
+}
+
+function appointmentDocumentsSection(apptId) {
+  const docs = state.appointmentDocuments[apptId];
+
+  if (docs === undefined) {
+    return `
+      <div class="field">
+        <button class="btn btn-outline" onclick="window.loadDocumentsForAppointment('${apptId}')">Carregar documentos</button>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="stack">
+      ${docs.length ? `
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Arquivo</th><th>Tamanho</th><th>Enviado em</th><th>Ações</th></tr></thead>
+            <tbody>
+              ${docs.map((doc) => `
+                <tr>
+                  <td>${escapeHtml(doc.file_name)}</td>
+                  <td>${(Number(doc.file_size_bytes || 0) / 1024).toFixed(1)} KB</td>
+                  <td>${formatDateTime(doc.created_at)}</td>
+                  <td>
+                    <button class="btn btn-outline" onclick="window.downloadDocument('${escapeHtml(doc.storage_path)}', '${escapeHtml(doc.file_name)}')">Baixar</button>
+                    <button class="btn btn-outline" onclick="window.deleteDocument('${doc.id}', '${escapeHtml(doc.storage_path)}', '${apptId}')">Excluir</button>
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      ` : `<div class="empty">Nenhum documento enviado ainda.</div>`}
+      <div class="field" style="margin-top:12px;">
+        <label>Enviar documentos do dossiê</label>
+        <input id="appt-doc-upload-${apptId}" type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.doc,.docx">
+        <span class="mini">PDF, imagens e documentos Word. Máximo 20 MB por arquivo.</span>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" onclick="window.uploadDocumentToAppointment('${apptId}')">Enviar documentos</button>
+      </div>
+    </div>
+  `;
+}
+
+function appointmentCard(appt) {
+  const statusBorderClass = {
+    agendado: "appt-agendado",
+    realizado: "appt-realizado",
+    nao_atendeu: "appt-nao-atendeu",
+    cancelado: "appt-cancelado",
+    reagendado: "appt-reagendado",
+  }[appt.status] || "";
+
+  return `
+    <div class="card stack appt-card ${statusBorderClass}">
+      <div class="section-title">
+        <div>
+          <h3>${escapeHtml(appt.client_name)}</h3>
+          <p class="muted">${escapeHtml(appt.produto || "-")} | ${escapeHtml(appt.posto || "-")}</p>
+        </div>
+        <div class="chip-row">
+          ${appointmentStatusBadge(appt.status)}
+          ${appt.scheduled_date ? `<span class="chip">${formatAppointmentDate(appt.scheduled_date, appt.scheduled_time)}</span>` : ""}
+        </div>
+      </div>
+      <div class="grid grid-4">
+        <div><div class="label">CPF/CNPJ</div><div class="mini">${escapeHtml(appt.cpf_cnpj || "-")}</div></div>
+        <div><div class="label">Pedido</div><div class="mini">${escapeHtml(appt.pedido || "-")}</div></div>
+        <div><div class="label">Código</div><div class="mini">${escapeHtml(appt.codigo || "-")}</div></div>
+        <div><div class="label">Parceiro</div><div class="mini">${escapeHtml(appt.participant_nome || "-")}</div></div>
+      </div>
+      ${(appt.phone || appt.mobile || appt.email_cliente) ? `
+        <div class="chip-row">
+          ${appt.phone ? `<span class="chip">${escapeHtml(appt.phone)}</span>` : ""}
+          ${appt.mobile ? `<span class="chip">${escapeHtml(appt.mobile)}</span>` : ""}
+          ${appt.email_cliente ? `<span class="chip">${escapeHtml(appt.email_cliente)}</span>` : ""}
+        </div>
+      ` : ""}
+      <details>
+        <summary>Atualizar status e observações</summary>
+        <div class="details-body stack">
+          <div class="grid grid-2">
+            <div class="field">
+              <label>Status</label>
+              <select id="appt-status-${appt.id}">
+                <option value="agendado" ${appt.status === "agendado" ? "selected" : ""}>Agendado</option>
+                <option value="realizado" ${appt.status === "realizado" ? "selected" : ""}>Realizado</option>
+                <option value="nao_atendeu" ${appt.status === "nao_atendeu" ? "selected" : ""}>Não atendeu</option>
+                <option value="cancelado" ${appt.status === "cancelado" ? "selected" : ""}>Cancelado</option>
+                <option value="reagendado" ${appt.status === "reagendado" ? "selected" : ""}>Reagendado</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Observações</label>
+              <textarea id="appt-notes-${appt.id}" rows="3" placeholder="Registre o que foi conversado...">${escapeHtml(appt.notes || "")}</textarea>
+            </div>
+          </div>
+          <div class="actions">
+            <button class="btn btn-primary" onclick="window.updateAppointmentFromForm('${appt.id}')">Salvar atualização</button>
+          </div>
+        </div>
+      </details>
+      <details>
+        <summary>Documentos do dossiê</summary>
+        <div class="details-body">
+          ${appointmentDocumentsSection(appt.id)}
+        </div>
+      </details>
+      ${isAdmin() ? `
+        <div class="actions">
+          <button class="btn btn-outline" onclick="window.deleteAppointment('${appt.id}')">Excluir agendamento</button>
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+function appointmentImportForm() {
+  const myParticipantId = !isAdmin() && state.myParticipantIds.length ? state.myParticipantIds[0] : "";
+
+  return `
+    <div class="card stack">
+      <div class="section-title">
+        <div>
+          <h3>Registrar agendamento</h3>
+          <p class="muted">Cole o e-mail de agendamento abaixo para preencher os campos automaticamente.</p>
+        </div>
+      </div>
+      <div class="field">
+        <label>Texto do e-mail recebido</label>
+        <textarea id="appt-email-paste" rows="8" placeholder="Cole aqui o conteúdo do e-mail de agendamento..."></textarea>
+        <span class="mini">O sistema reconhece os campos: Cliente, CPF/CNPJ, Telefone, Email, Pedido, Código, Produto, Posto, Data e Hora.</span>
+      </div>
+      <div class="actions">
+        <button class="btn btn-secondary" type="button" onclick="window.parseAndFillAppointmentForm()">Analisar e-mail</button>
+      </div>
+      <div class="grid grid-3">
+        <div class="field">
+          <label>Cliente <span class="mini" style="color:var(--danger)">*</span></label>
+          <input id="appt-client-name" placeholder="Nome completo do cliente">
+        </div>
+        <div class="field">
+          <label>CPF/CNPJ</label>
+          <input id="appt-cpf-cnpj" placeholder="CPF ou CNPJ do cliente">
+        </div>
+        <div class="field">
+          <label>Telefone</label>
+          <input id="appt-phone" placeholder="(00) 00000-0000">
+        </div>
+        <div class="field">
+          <label>Celular</label>
+          <input id="appt-mobile" placeholder="(00) 00000-0000">
+        </div>
+        <div class="field">
+          <label>E-mail do cliente</label>
+          <input id="appt-email" type="email" placeholder="email@cliente.com">
+        </div>
+        <div class="field">
+          <label>Pedido</label>
+          <input id="appt-pedido" placeholder="Número do pedido">
+        </div>
+        <div class="field">
+          <label>Código</label>
+          <input id="appt-codigo" placeholder="Código do agendamento">
+        </div>
+        <div class="field">
+          <label>Produto</label>
+          <input id="appt-produto" placeholder="Ex.: e-PF A1 COMPUTADOR 1 ANO">
+        </div>
+        <div class="field">
+          <label>Posto / AR</label>
+          <input id="appt-posto" placeholder="Ex.: AR Certifast - videoconferencia">
+        </div>
+        <div class="field">
+          <label>Data do agendamento</label>
+          <input id="appt-date" type="date">
+        </div>
+        <div class="field">
+          <label>Hora</label>
+          <input id="appt-time" type="time">
+        </div>
+        <div class="field">
+          <label>Parceiro responsável</label>
+          <select id="appt-participant">
+            <option value="">Sem parceiro vinculado</option>
+            ${state.participants.map((p) => `<option value="${p.id}" ${myParticipantId === p.id ? "selected" : ""}>${escapeHtml(p.nome)}${p.fantasia ? ` — ${escapeHtml(p.fantasia)}` : ""}</option>`).join("")}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label>Observações iniciais</label>
+        <textarea id="appt-notes-new" rows="2" placeholder="Observações opcionais sobre este agendamento..."></textarea>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" onclick="window.saveAppointmentFromForm()">Salvar agendamento</button>
+        <button class="btn btn-outline" onclick="window.toggleAppointmentForm()">Cancelar</button>
+      </div>
+    </div>
+  `;
+}
+
+function appointmentsView() {
+  const pageData = paginatedAppointments();
+  const allAppts = state.appointments;
+  const byStatus = (status) => allAppts.filter((a) => a.status === status).length;
+
+  return `
+    <div class="stack">
+      <div class="card">
+        <div class="page-head">
+          <div>
+            <h2>Agendamentos</h2>
+            <p class="muted">Registre e acompanhe os agendamentos de visita para renovação de certificados digitais.</p>
+          </div>
+          <div class="actions">
+            <button class="btn btn-primary" onclick="window.toggleAppointmentForm()">
+              ${state.appointmentFormOpen ? "Fechar formulário" : "Registrar agendamento"}
+            </button>
+            <button class="btn btn-secondary" onclick="window.loadAppointments()">${state.loading ? "Atualizando..." : "Atualizar"}</button>
+          </div>
+        </div>
+        <div class="grid grid-4" style="margin-top: 18px;">
+          <div class="stat"><div class="label">Total</div><div class="value">${allAppts.length}</div><div class="meta">Agendamentos registrados</div></div>
+          <div class="stat"><div class="label">Agendados</div><div class="value">${byStatus("agendado") + byStatus("reagendado")}</div><div class="meta">Aguardando atendimento</div></div>
+          <div class="stat"><div class="label">Realizados</div><div class="value">${byStatus("realizado")}</div><div class="meta">Atendimentos concluídos</div></div>
+          <div class="stat"><div class="label">Não atendeu</div><div class="value">${byStatus("nao_atendeu") + byStatus("cancelado")}</div><div class="meta">Não atendeu ou cancelado</div></div>
+        </div>
+      </div>
+
+      ${state.appointmentFormOpen ? appointmentImportForm() : ""}
+
+      <div class="card">
+        <div class="section-title"><h3>Lista de agendamentos</h3></div>
+        <div class="grid grid-3" style="margin-top: 12px;">
+          <div class="field">
+            <label>Buscar</label>
+            <input value="${escapeHtml(state.appointmentSearch)}" placeholder="Cliente, pedido, produto, posto..." oninput="window.setAppointmentSearch(this.value)">
+          </div>
+          <div class="field">
+            <label>Status</label>
+            <select onchange="window.setAppointmentStatusFilter(this.value)">
+              <option value="__all__" ${state.appointmentStatusFilter === "__all__" ? "selected" : ""}>Todos os status</option>
+              <option value="agendado" ${state.appointmentStatusFilter === "agendado" ? "selected" : ""}>Agendado</option>
+              <option value="realizado" ${state.appointmentStatusFilter === "realizado" ? "selected" : ""}>Realizado</option>
+              <option value="nao_atendeu" ${state.appointmentStatusFilter === "nao_atendeu" ? "selected" : ""}>Não atendeu</option>
+              <option value="cancelado" ${state.appointmentStatusFilter === "cancelado" ? "selected" : ""}>Cancelado</option>
+              <option value="reagendado" ${state.appointmentStatusFilter === "reagendado" ? "selected" : ""}>Reagendado</option>
+            </select>
+          </div>
+          <div class="stat">
+            <div class="label">Visíveis</div>
+            <div class="value">${pageData.total}</div>
+            <div class="meta">Página ${pageData.currentPage} de ${pageData.totalPages}</div>
+          </div>
+        </div>
+      </div>
+
+      ${!allAppts.length ? `
+        <div class="card">
+          <div class="empty">${state.loading ? "Carregando agendamentos..." : "Nenhum agendamento registrado. Use o botão acima para registrar ou clique em Atualizar."}</div>
+        </div>
+      ` : pageData.items.length ? `
+        <div class="stack">
+          ${pageData.items.map(appointmentCard).join("")}
+          ${pageData.totalPages > 1 ? `
+            <div class="card">
+              <div class="pagination-bar">
+                <div class="mini">Mostrando ${pageData.start} a ${pageData.end} de ${pageData.total} agendamento(s).</div>
+                <div class="actions">
+                  <button class="btn btn-outline" ${pageData.currentPage <= 1 ? "disabled" : ""} onclick="window.setAppointmentPage(${pageData.currentPage - 1})">Anterior</button>
+                  <button class="btn btn-outline" ${pageData.currentPage >= pageData.totalPages ? "disabled" : ""} onclick="window.setAppointmentPage(${pageData.currentPage + 1})">Próxima</button>
+                </div>
+              </div>
+            </div>
+          ` : ""}
+        </div>
+      ` : `<div class="card"><div class="empty">Nenhum agendamento encontrado para os filtros atuais.</div></div>`}
+    </div>
+  `;
+}
+
+// ===== FIM AGENDAMENTOS =====
+
 function navigate(page) {
   state.activePage = page;
+  if (page === "agendamentos" && !state.appointments.length && !state.loading) {
+    loadAppointments();
+    return;
+  }
   render();
 }
 
@@ -2171,6 +2865,7 @@ function sidebarView() {
     ["comissoes", "Comissões"],
     ...(isAdmin() ? [["importacoes", "Importações"], ["parceiros", "Parceiros"], ["usuarios", "Usuários"], ["renovacoes", "Renovações"]] : []),
     ["clientes-renovar", "Clientes a Renovar"],
+    ["agendamentos", "Agendamentos"],
   ];
 
   return `
@@ -3015,6 +3710,7 @@ function contentView() {
   if (state.activePage === "usuarios") return usersView();
   if (state.activePage === "renovacoes") return renewalsView();
   if (state.activePage === "clientes-renovar") return renewalClientsView();
+  if (state.activePage === "agendamentos") return appointmentsView();
   return dashboardView();
 }
 
@@ -3092,6 +3788,19 @@ window.onPeriodChange = onPeriodChange;
 window.onParticipantChange = onParticipantChange;
 window.handleLogoUpload = handleLogoUpload;
 window.clearCustomLogo = clearCustomLogo;
+window.loadAppointments = loadAppointments;
+window.saveAppointmentFromForm = saveAppointmentFromForm;
+window.updateAppointmentFromForm = (id) => updateAppointmentFromForm(id).catch((error) => setMessage("error", error.message));
+window.deleteAppointment = (id) => deleteAppointment(id).catch((error) => setMessage("error", error.message));
+window.loadDocumentsForAppointment = loadDocumentsForAppointment;
+window.uploadDocumentToAppointment = uploadDocumentToAppointment;
+window.downloadDocument = downloadDocument;
+window.deleteDocument = deleteDocument;
+window.toggleAppointmentForm = toggleAppointmentForm;
+window.parseAndFillAppointmentForm = parseAndFillAppointmentForm;
+window.setAppointmentSearch = setAppointmentSearch;
+window.setAppointmentStatusFilter = setAppointmentStatusFilter;
+window.setAppointmentPage = setAppointmentPage;
 
 if (db) {
   db.auth.onAuthStateChange(async (_event, session) => {

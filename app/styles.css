@@ -905,3 +905,34 @@ summary::-webkit-details-marker {
     flex-direction: column;
   }
 }
+
+/* ===== AGENDAMENTOS ===== */
+
+.appt-card {
+  border-left: 4px solid var(--line);
+  transition: border-left-color 0.15s;
+}
+
+.appt-agendado   { border-left-color: #3b82f6; }
+.appt-realizado  { border-left-color: #22c55e; }
+.appt-nao-atendeu { border-left-color: #f59e0b; }
+.appt-cancelado  { border-left-color: #ef4444; }
+.appt-reagendado { border-left-color: #a855f7; }
+
+.appt-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.badge-agendado    { background: #dbeafe; color: #1d4ed8; }
+.badge-realizado   { background: #dcfce7; color: #15803d; }
+.badge-nao-atendeu { background: #fef3c7; color: #b45309; }
+.badge-cancelado   { background: #fee2e2; color: #b91c1c; }
+.badge-reagendado  { background: #f3e8ff; color: #7e22ce; }
