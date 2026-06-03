@@ -1,0 +1,14 @@
+/.agent/
+/.antigravity/
+/*.xlsx
+/*.xls
+/*.csv
+/RELATORIO DE RENOVAÇÃO/
+app/data/
+app/node_modules/
+node_modules/
+dist/
+.env
+.env.local
+.vercel
+.claude/
